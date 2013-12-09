@@ -1,4 +1,4 @@
-package dispatcher
+package stf
 
 import (
   "bytes"
@@ -12,26 +12,21 @@ import (
   "regexp"
   "strings"
   "strconv"
-  "stf"
-  "stf/bucket"
-  "stf/context"
-  "stf/object"
-  "stf/queue"
 )
 
 type Dispatcher struct {
   Address string
-  Ctx            *context.GlobalContext
+  Ctx            *GlobalContext
   ResponseWriter *http.ResponseWriter
   Request        *http.Request
 }
 
-func Bootstrap(ctx *context.GlobalContext) (*Dispatcher, error) {
+func BootstrapDispatcher(ctx *GlobalContext) (*Dispatcher, error) {
   cfg := (*ctx.Config()).Dispatcher
   return NewDispatcher(ctx, cfg.ServerId, &cfg.Listen), nil
 }
 
-func NewDispatcher(ctx *context.GlobalContext, id uint64, addr *string) *Dispatcher {
+func NewDispatcher(ctx *GlobalContext, id uint64, addr *string) *Dispatcher {
   d := new(Dispatcher)
   if addr != nil {
     d.Address = *addr
@@ -88,7 +83,7 @@ func (self *Dispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
     objectName,
   )
 
-  var resp *stf.HTTPResponse
+  var resp *HTTPResponse
   switch r.Method {
   case "GET":
     resp = self.FetchObject(ctx, bucketName, objectName)
@@ -100,7 +95,7 @@ func (self *Dispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
     }
   case "PUT":
     // If the Content-Length is 0, then attempt to create the
-    // bucket. Otherwise, try the bucket
+    // Bucket Otherwise, try the bucket
     if cl := r.ContentLength; cl > 0 {
       resp = self.CreateObject(ctx, bucketName, objectName)
     } else {
@@ -109,7 +104,7 @@ func (self *Dispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
   case "POST":
     resp = self.ModifyObject(ctx, bucketName, objectName)
   default:
-    resp = stf.HTTPMethodNotAllowed
+    resp = HTTPMethodNotAllowed
     return
   }
 
@@ -156,7 +151,7 @@ func parseObjectPath(path string) (string, string, error) {
   return bucketName, objectName, nil
 }
 
-func (self *Dispatcher) CreateBucket(ctx *context.RequestContext, bucketName string, objectName string) *stf.HTTPResponse {
+func (self *Dispatcher) CreateBucket(ctx *RequestContext, bucketName string, objectName string) *HTTPResponse {
   ctx.TxnBegin()
   defer ctx.TxnRollback()
 
@@ -164,23 +159,23 @@ func (self *Dispatcher) CreateBucket(ctx *context.RequestContext, bucketName str
   defer closer()
 
   if objectName != "" {
-    return &stf.HTTPResponse { Code: 400, Message: "Bad bucket name" }
+    return &HTTPResponse { Code: 400, Message: "Bad bucket name" }
   }
 
-  id, err := bucket.LookupIdByName(ctx, bucketName)
+  id, err := BucketLookupIdByName(ctx, bucketName)
   if err == nil { // No error, so we found a bucket
     ctx.Debugf("Bucket '%s' already exists (id = %d)", bucketName, id)
-    return stf.HTTPNoContent
+    return HTTPNoContent
   } else if err != sql.ErrNoRows {
     ctx.Debugf("Error while looking up bucket '%s': %s", bucketName, err)
-    return stf.HTTPInternalServerError
+    return HTTPInternalServerError
   }
 
-  // If we got here, it's a new bucket. Create it
+  // If we got here, it's a new Bucket Create it
   id = ctx.IdGenerator().CreateId()
   log.Printf("id = %d", id)
 
-  err = bucket.Create(
+  err = BucketCreate(
     ctx,
     id,
     bucketName,
@@ -188,46 +183,46 @@ func (self *Dispatcher) CreateBucket(ctx *context.RequestContext, bucketName str
 
   if err != nil {
     self.Debugf("Failed to create bucket '%s': %s", bucketName, err)
-    return stf.HTTPInternalServerError
+    return HTTPInternalServerError
   }
 
   ctx.TxnCommit()
 
-  return stf.HTTPCreated
+  return HTTPCreated
 }
 
-func (self *Dispatcher) FetchObject(ctx *context.RequestContext, bucketName string, objectName string) *stf.HTTPResponse {
+func (self *Dispatcher) FetchObject(ctx *RequestContext, bucketName string, objectName string) *HTTPResponse {
   ctx.TxnBegin()
   defer ctx.TxnRollback()
 
-  bucketId, err := bucket.LookupIdByName(ctx, bucketName)
+  bucketId, err := BucketLookupIdByName(ctx, bucketName)
   if err != nil {
     self.Debugf("Bucket %s does not exist", bucketName)
-    return stf.HTTPNotFound
+    return HTTPNotFound
   }
-  bucketObj, err := bucket.Lookup(ctx, bucketId)
+  bucketObj, err := BucketLookup(ctx, bucketId)
   if err != nil {
-    return stf.HTTPNotFound
+    return HTTPNotFound
   }
 
-  objectId, err := object.LookupIdByBucketAndPath(ctx, bucketObj, objectName)
+  objectId, err := ObjectLookupIdByBucketAndPath(ctx, bucketObj, objectName)
   switch {
   case err == sql.ErrNoRows:
     // failed to lookup, 404
-    return stf.HTTPNotFound
+    return HTTPNotFound
   case err != nil:
     // Whatever error
-    return stf.HTTPInternalServerError
+    return HTTPInternalServerError
   }
 
-  objectObj, err := object.Lookup(ctx, objectId)
+  objectObj, err := ObjectLookup(ctx, objectId)
   if err != nil {
-    return stf.HTTPNotFound
+    return HTTPNotFound
   }
 
   ifModifiedSince := ctx.Request.Header.Get("If-Modified-Since")
   doHealthCheck := rand.Float64() < 0.001
-  uri, err := object.GetAnyValidEntityUrl(
+  uri, err := ObjectGetAnyValidEntityUrl(
     ctx,
     bucketObj,
     objectObj,
@@ -237,16 +232,16 @@ func (self *Dispatcher) FetchObject(ctx *context.RequestContext, bucketName stri
 
   switch {
   case uri == "":
-    return stf.HTTPNotFound
-  case err == object.ErrContentNotModified:
+    return HTTPNotFound
+  case err == ErrContentNotModified:
     // Special case
-    return stf.HTTPNotModified
+    return HTTPNotModified
   case err != nil:
-    return stf.HTTPInternalServerError
+    return HTTPInternalServerError
   }
 
   // something was found, return with a X-Reproxy-URL
-  response := stf.NewResponse(200)
+  response := NewResponse(200)
   response.Header.Add("X-Reproxy-URL", uri)
   response.Header.Add("X-Accel-Redirect", "/redirect")
 
@@ -255,90 +250,90 @@ func (self *Dispatcher) FetchObject(ctx *context.RequestContext, bucketName stri
   return response
 }
 
-func (self *Dispatcher) DeleteObject (ctx *context.RequestContext, bucketName string, objectName string) *stf.HTTPResponse {
+func (self *Dispatcher) DeleteObject (ctx *RequestContext, bucketName string, objectName string) *HTTPResponse {
   ctx.TxnBegin()
   defer ctx.TxnRollback()
 
-  bucketId, err := bucket.LookupIdByName(ctx, bucketName)
+  bucketId, err := BucketLookupIdByName(ctx, bucketName)
   if err != nil {
-    return &stf.HTTPResponse { Code: 500, Message: "Failed to find bucket" }
+    return &HTTPResponse { Code: 500, Message: "Failed to find bucket" }
   }
 
-  bucketObj, err := bucket.Lookup(ctx, bucketId)
+  bucketObj, err := BucketLookup(ctx, bucketId)
   if err != nil {
-    return stf.HTTPNotFound
+    return HTTPNotFound
   }
 
   if objectName == "" {
-    return &stf.HTTPResponse { Code: 500, Message: "Could not extact object name" }
+    return &HTTPResponse { Code: 500, Message: "Could not extact object name" }
   }
 
-  objectId, err := object.LookupIdByBucketAndPath(ctx, bucketObj, objectName)
+  objectId, err := ObjectLookupIdByBucketAndPath(ctx, bucketObj, objectName)
   if err != nil {
     ctx.Debugf("Failed to lookup object %s/%s", bucketName, objectName)
-    return stf.HTTPNotFound
+    return HTTPNotFound
   }
 
-  err = object.MarkForDelete(ctx, objectId)
+  err = ObjectMarkForDelete(ctx, objectId)
   if err != nil {
     self.Debugf("Failed to mark object (%d) as deleted: %s", objectId, err)
-    return &stf.HTTPResponse { Code : 500, Message: "Failed to mark object as deleted" }
+    return &HTTPResponse { Code : 500, Message: "Failed to mark object as deleted" }
   }
 
-  err = queue.Insert(ctx, "delete_object", strconv.FormatUint(objectId, 10))
+  err = QueueInsert(ctx, "delete_object", strconv.FormatUint(objectId, 10))
   if err != nil {
     self.Debugf("Failed to send object (%d) to delete_object queue: %s", objectId, err)
-    return &stf.HTTPResponse { Code : 500, Message: "Failed to delete object" }
+    return &HTTPResponse { Code : 500, Message: "Failed to delete object" }
   }
 
   return nil
 }
 
-func (self *Dispatcher) DeleteBucket (ctx *context.RequestContext, bucketName string) *stf.HTTPResponse {
-  id, err := bucket.LookupIdByName(ctx, bucketName)
+func (self *Dispatcher) DeleteBucket (ctx *RequestContext, bucketName string) *HTTPResponse {
+  id, err := BucketLookupIdByName(ctx, bucketName)
 
   if err != nil {
-    return &stf.HTTPResponse { Code: 500, Message: "Failed to find bucket" }
+    return &HTTPResponse { Code: 500, Message: "Failed to find bucket" }
   }
 
-  err = bucket.MarkForDelete(ctx, id)
+  err = BucketMarkForDelete(ctx, id)
   if err != nil {
     self.Debugf("Failed to delete bucket %s", err)
-    return &stf.HTTPResponse { Code: 500, Message: "Failed to delete bucket" }
+    return &HTTPResponse { Code: 500, Message: "Failed to delete bucket" }
   }
 
   self.Debugf("Deleted bucket '%s' (id = %d)", bucketName, id)
 
-  return stf.HTTPNoContent
+  return HTTPNoContent
 }
 
 var reMatchSuffix = regexp.MustCompile(`\.([a-zA-Z0-9]+)$`)
-func (self *Dispatcher) CreateObject (ctx *context.RequestContext, bucketName string, objectName string) *stf.HTTPResponse {
+func (self *Dispatcher) CreateObject (ctx *RequestContext, bucketName string, objectName string) *HTTPResponse {
 
   ctx.TxnBegin()
   defer ctx.TxnRollback()
 
-  bucketId, err := bucket.LookupIdByName(ctx, bucketName)
+  bucketId, err := BucketLookupIdByName(ctx, bucketName)
   if err != nil {
-    return &stf.HTTPResponse { Code: 500, Message: "Failed to find bucket" }
+    return &HTTPResponse { Code: 500, Message: "Failed to find bucket" }
   }
 
-  bucketObj, err := bucket.Lookup(ctx, bucketId)
+  bucketObj, err := BucketLookup(ctx, bucketId)
   if err != nil {
-    return stf.HTTPNotFound
+    return HTTPNotFound
   }
 
   if objectName == "" {
-    return &stf.HTTPResponse { Code: 500, Message: "Could not extact object name" }
+    return &HTTPResponse { Code: 500, Message: "Could not extact object name" }
   }
 
-  oldObjectId, err := object.LookupIdByBucketAndPath(ctx, bucketObj, objectName)
+  oldObjectId, err := ObjectLookupIdByBucketAndPath(ctx, bucketObj, objectName)
   switch {
   case err == sql.ErrNoRows:
     // Just means that this is a new object
   case err != nil:
     // Some unknown error occurred
-    return stf.HTTPInternalServerError
+    return HTTPInternalServerError
   default:
     // Found oldObjectId. Mark this old object to be deleted
     // Note: Don't send to the queue just yet
@@ -347,7 +342,7 @@ func (self *Dispatcher) CreateObject (ctx *context.RequestContext, bucketName st
       objectName,
       bucketName,
     )
-    object.MarkForDelete(ctx, oldObjectId)
+    ObjectMarkForDelete(ctx, oldObjectId)
   }
 
   matches := reMatchSuffix.FindStringSubmatch(ctx.Request.URL.Path)
@@ -370,12 +365,12 @@ func (self *Dispatcher) CreateObject (ctx *context.RequestContext, bucketName st
   body, err := ioutil.ReadAll(ctx.Request.Body)
   if err != nil {
     ctx.Debugf("Failed to read request body: %s", err)
-    return stf.HTTPInternalServerError
+    return HTTPInternalServerError
   }
 
   buf := bytes.NewReader(body)
 
-  err = object.Store(
+  err = ObjectStore(
     ctx,
     objectId,
     bucketId,
@@ -388,14 +383,14 @@ func (self *Dispatcher) CreateObject (ctx *context.RequestContext, bucketName st
   )
 
   if err != nil {
-    return stf.HTTPInternalServerError
+    return HTTPInternalServerError
   }
 
   ctx.Debugf("Successfully created object %s/%s", bucketName, objectName)
   ctx.TxnCommit()
 
-  return stf.HTTPCreated
+  return HTTPCreated
 }
-func (self *Dispatcher) ModifyObject (ctx *context.RequestContext, bucketName string, objectName string) *stf.HTTPResponse {
+func (self *Dispatcher) ModifyObject (ctx *RequestContext, bucketName string, objectName string) *HTTPResponse {
   return nil
 }

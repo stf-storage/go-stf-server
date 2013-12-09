@@ -1,21 +1,19 @@
-package entity
+package stf
 
 import (
   "bytes"
   "errors"
   "fmt"
   "net/http"
-  "stf"
-  "stf/context"
   "strings"
 )
 
-func Create (
-  ctx *context.RequestContext, 
+func EntityCreate (
+  ctx *RequestContext, 
   objectId uint64,
   storageId uint32,
 ) error {
-  closer := ctx.LogMark("[Object.Create]")
+  closer := ctx.LogMark("[Entity.Create]")
   defer closer()
   tx := ctx.Txn()
   _, err := tx.Exec("INSERT INTO entity (object_id, storage_id, status, created_at) VALUES (?, ?, 1, UNIX_TIMESTAMP())", objectId, storageId)
@@ -29,9 +27,9 @@ func Create (
   return nil
 }
 
-func FetchContent(
-  ctx *context.RequestContext,
-  object *stf.Object,
+func EntityFetchContent(
+  ctx *RequestContext,
+  object *Object,
   storageId uint32,
   isRepair bool,
 ) ([]byte, error) {
@@ -40,10 +38,10 @@ func FetchContent(
   return nil, nil
 }
 
-func Store(
-  ctx *context.RequestContext,
-  storageObj  *stf.Storage,
-  objectObj   *stf.Object,
+func EntityStore(
+  ctx *RequestContext,
+  storageObj  *Storage,
+  objectObj   *Object,
   input       *bytes.Reader,
 ) error {
   closer := ctx.LogMark("[Entity.Store]")
@@ -81,7 +79,7 @@ func Store(
 
   ctx.Debugf("Successfully stored object in %s", uri)
 
-  err = Create(
+  err = EntityCreate(
     ctx,
     objectObj.Id,
     storageObj.Id,

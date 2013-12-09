@@ -5,8 +5,7 @@ import (
   "log"
   "os"
   "path"
-  "stf/context"
-  "stf/dispatcher"
+  "stf"
 )
 
 func main() {
@@ -28,13 +27,13 @@ func main() {
   flag.Parse()
 
   os.Setenv("STF_CONFIG", configFile)
-  ctx, err := context.Bootstrap()
+  ctx, err := stf.BootstrapContext()
   if err != nil {
     log.Fatal(err)
   }
 
   defer ctx.Destroy()
 
-  d, err := dispatcher.Bootstrap(ctx)
+  d, err := stf.BootstrapDispatcher(ctx)
   d.Start()
 }

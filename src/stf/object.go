@@ -1,4 +1,4 @@
-package object
+package stf
 
 import (
   "bytes"
@@ -7,11 +7,6 @@ import (
   "fmt"
   "log"
   "net/http"
-  "stf"
-  "stf/context"
-  "stf/cluster"
-  "stf/queue"
-  "stf/storage"
   "strconv"
   "strings"
   randbo "github.com/dustin/randbo"
@@ -19,8 +14,8 @@ import (
 
 var ErrContentNotModified error = errors.New("Request Content Not Modified")
 
-func LookupIdByBucketAndPath(ctx *context.RequestContext, bucketObj *stf.Bucket, path string) (uint64, error) {
-  closer := ctx.LogMark("[Object.LookupIdByBucketAndPath]")
+func ObjectLookupIdByBucketAndPath(ctx *RequestContext, bucketObj *Bucket, path string) (uint64, error) {
+  closer := ctx.LogMark("[Object.ObjectLookupIdByBucketAndPath]")
   defer closer()
 
   tx := ctx.Txn()
@@ -33,7 +28,7 @@ func LookupIdByBucketAndPath(ctx *context.RequestContext, bucketObj *stf.Bucket,
     ctx.Debugf("Could not find any object for %s/%s", bucketObj.Name, path)
     return 0, sql.ErrNoRows
   case err != nil:
-    return 0, errors.New(fmt.Sprintf("Failed to execute query (LookupByBucketAndPath): %s", err))
+    return 0, errors.New(fmt.Sprintf("Failed to execute query (ObjectLookupByBucketAndPath): %s", err))
   }
 
   ctx.Debugf("Loaded Object ID '%d' from %s/%s", id, bucketObj.Name, path)
@@ -41,10 +36,10 @@ func LookupIdByBucketAndPath(ctx *context.RequestContext, bucketObj *stf.Bucket,
   return id, nil
 }
 
-func LookupFromDB(
-  ctx *context.RequestContext,
+func ObjectLookupFromDB(
+  ctx *RequestContext,
   id  uint64,
-  o   *stf.Object,
+  o   *Object,
 ) (error) {
   tx := ctx.Txn()
   row := tx.QueryRow("SELECT id, bucket_id, name, internal_name, size, status, created_at, updated_at  FROM object WHERE id = ?", id)
@@ -61,18 +56,18 @@ func LookupFromDB(
   )
 
   if err != nil {
-    ctx.Debugf("Failed to execute query (Lookup): %s", err)
+    ctx.Debugf("Failed to execute query (ObjectLookup): %s", err)
     return err
   }
 
   return nil
 }
 
-func Lookup(ctx *context.RequestContext, id uint64) (*stf.Object, error) {
-  closer := ctx.LogMark("[Object.Lookup]")
+func ObjectLookup(ctx *RequestContext, id uint64) (*Object, error) {
+  closer := ctx.LogMark("[Object.ObjectLookup]")
   defer closer()
 
-  var o stf.Object
+  var o Object
   cache := ctx.Cache()
   cacheKey := cache.CacheKey("object", strconv.FormatUint(id, 10))
   err := cache.Get(cacheKey, &o)
@@ -81,7 +76,7 @@ func Lookup(ctx *context.RequestContext, id uint64) (*stf.Object, error) {
     return &o, nil
   }
 
-  err = LookupFromDB(ctx, id, &o)
+  err = ObjectLookupFromDB(ctx, id, &o)
   if err != nil {
     return nil, err
   }
@@ -91,10 +86,10 @@ func Lookup(ctx *context.RequestContext, id uint64) (*stf.Object, error) {
   return &o, nil
 }
 
-func GetStoragesFor(
-  ctx *context.RequestContext,
-  objectObj *stf.Object,
-) ([]stf.Storage, error) {
+func ObjectGetStoragesFor(
+  ctx *RequestContext,
+  objectObj *Object,
+) ([]Storage, error) {
   closer := ctx.LogMark("[Object.GetStoragesFor]")
   defer closer()
 
@@ -107,15 +102,15 @@ func GetStoragesFor(
     strconv.FormatUint(objectObj.Id, 10),
   )
   var storageIds []uint32
-  var list []stf.Storage
+  var list []Storage
 
   err := cache.Get(cacheKey, &storageIds)
 
   if err == nil {
     // Cache HIT. we need to check for the validity of the storages
-    list, err = storage.LookupMulti(ctx, storageIds)
+    list, err = StorageLookupMulti(ctx, storageIds)
     if err != nil {
-      list = []stf.Storage {}
+      list = []Storage {}
     } else {
       // Check each
     }
@@ -135,13 +130,13 @@ func GetStoragesFor(
       "     e.status = 1 AND\n" +
       "     s.mode IN (?, ?)"
     tx := ctx.Txn()
-    rows, err := tx.Query(sql, objectObj.Id, stf.STORAGE_MODE_READ_ONLY, stf.STORAGE_MODE_READ_WRITE)
+    rows, err := tx.Query(sql, objectObj.Id, STORAGE_MODE_READ_ONLY, STORAGE_MODE_READ_WRITE)
     if err != nil {
       return nil, err
     }
 
     for rows.Next() {
-      var s stf.Storage
+      var s Storage
       err = rows.Scan(
         &s.Id,
         &s.Uri,
@@ -150,17 +145,18 @@ func GetStoragesFor(
       storageIds = append(storageIds, int64(s.Id))
       list = append(list, s)
     }
-ctx.Debugf("%+v", storageIds)
-    cache.Set(cacheKey, storageIds, 600)
+    if len(storageIds) > 0 {
+      cache.Set(cacheKey, storageIds, 600)
+    }
   }
   ctx.Debugf("Loaded %d storages", len(list))
   return list, nil
 }
 
 func EnqueueRepair(
-  ctx *context.RequestContext,
-  bucketObj *stf.Bucket,
-  objectObj *stf.Object,
+  ctx *RequestContext,
+  bucketObj *Bucket,
+  objectObj *Object,
 ) {
   go func () {
     // This operation does not have to complete succesfully, so
@@ -183,7 +179,7 @@ func EnqueueRepair(
     objectObj.Name,
   )
 
-  queue.Insert(
+  QueueInsert(
     ctx,
     "repair_object",
     strconv.FormatUint(objectObj.Id, 10),
@@ -199,10 +195,10 @@ func EnqueueRepair(
   cache.Add(cacheKey, 1, 3600)
 }
 
-func GetAnyValidEntityUrl (
-  ctx *context.RequestContext, 
-  bucketObj *stf.Bucket,
-  objectObj *stf.Object,
+func ObjectGetAnyValidEntityUrl (
+  ctx *RequestContext, 
+  bucketObj *Bucket,
+  objectObj *Object,
   doHealthCheck bool, // true if we want to run repair
   ifModifiedSince string,
 ) (string, error) {
@@ -219,7 +215,7 @@ func GetAnyValidEntityUrl (
     }()
   }
 
-  storages, err := GetStoragesFor(ctx, objectObj)
+  storages, err := ObjectGetStoragesFor(ctx, objectObj)
   if err != nil {
     return "", err
   }
@@ -244,6 +240,7 @@ func GetAnyValidEntityUrl (
 
     switch resp.StatusCode {
     case 200:
+      ctx.Debugf("Request successs, returning URL '%s'", url)
       return url,nil 
     case 304:
       // This is wierd, but this is how we're gin
@@ -264,7 +261,7 @@ func GetAnyValidEntityUrl (
   return "", nil
 }
 
-func MarkForDelete (ctx *context.RequestContext, id uint64) error {
+func ObjectMarkForDelete (ctx *RequestContext, id uint64) error {
   tx := ctx.Txn()
   res, err := tx.Exec("REPLACE INTO deleted_object SELECT * FROM object WHERE id = ?", id)
 
@@ -303,7 +300,7 @@ func MarkForDelete (ctx *context.RequestContext, id uint64) error {
   return nil
 }
 
-func Delete (ctx *context.RequestContext, id uint64) error {
+func ObjectDelete (ctx *RequestContext, id uint64) error {
   tx := ctx.Txn()
   _, err := tx.Exec("DELETE FROM object WHERE id = ?", id)
   if err != nil {
@@ -321,7 +318,7 @@ func Delete (ctx *context.RequestContext, id uint64) error {
 }
 
 func Create (
-  ctx *context.RequestContext, 
+  ctx *RequestContext, 
   objectId uint64,
   bucketId uint64,
   objectName string,
@@ -342,8 +339,8 @@ func Create (
   return nil
 }
 
-func AttemptCreate (
-  ctx *context.RequestContext, 
+func ObjectAttemptCreate (
+  ctx *RequestContext, 
   objectId uint64,
   bucketId uint64,
   objectName string,
@@ -388,8 +385,8 @@ func createInternalName (suffix string) string {
   )
 }
 
-func Store (
-  ctx *context.RequestContext,
+func ObjectStore (
+  ctx *RequestContext,
   objectId uint64,
   bucketId uint64,
   objectName string,
@@ -405,7 +402,7 @@ func Store (
   done := false
   for i := 0; i < 10; i++ {
     internalName := createInternalName(suffix)
-    err := AttemptCreate(
+    err := ObjectAttemptCreate(
       ctx,
       objectId,
       bucketId,
@@ -434,18 +431,18 @@ func Store (
   defer func() {
     if ! done {
       ctx.Debugf("Something went wrong, deleting object to make sure")
-      Delete(ctx, objectId)
+      ObjectDelete(ctx, objectId)
     }
   }()
 
-  objectObj, err := Lookup(ctx, objectId)
+  objectObj, err := ObjectLookup(ctx, objectId)
   if err != nil {
     ctx.Debugf("Failed to lookup up object from DB: %s", err)
     return err
   }
 
   // Load all possible clusters ordered by a consistent hash
-  clusters, err := cluster.LoadCandidatesFor(ctx, objectId)
+  clusters, err := ClusterLoadCandidatesFor(ctx, objectId)
   if err != nil {
     return err
   }
@@ -457,7 +454,7 @@ func Store (
   }
 
   for _, clusterObj := range clusters {
-    err := cluster.Store(
+    err := ClusterStore(
       ctx,
       clusterObj.Id,
       objectObj,
@@ -468,7 +465,7 @@ func Store (
     )
     if err == nil { // Success!
       ctx.Debugf("Successfully stored objects in cluster %d", clusterObj.Id)
-      cluster.RegisterForObject(
+      ClusterRegisterForObject(
         ctx,
         clusterObj.Id,
         objectId,

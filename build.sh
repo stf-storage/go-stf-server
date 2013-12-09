@@ -25,8 +25,10 @@ for dep in $DEPS; do
   done
 done
 
-for executable in dispatcher storage; do
-  echo "Building bin/$executable"
-  go build -o bin/$executable src/$executable.go 
-done
+echo "Building bin/storage"
+go build -o bin/storage cli_storage.go
+
+echo "Building bin/dispatcher"
+go build -o bin/dispatcher cli_dispatcher.go
+
 echo "Build done"

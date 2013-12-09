@@ -1,17 +1,15 @@
-package storage
+package stf
 
 import (
   "fmt"
-  "stf"
-  "stf/context"
   "strconv"
   "strings"
 )
 
-func LookupFromDB(
-  ctx *context.RequestContext,
+func StorageLookupFromDB(
+  ctx *RequestContext,
   id uint32,
-  s   *stf.Storage,
+  s   *Storage,
 ) (error) {
   tx := ctx.Txn()
   row := tx.QueryRow("SELECT id, cluster_id, uri, mode, created_at, updated_at FROM storage WHERE id = ?", id)
@@ -26,7 +24,7 @@ func LookupFromDB(
   )
 
   if err != nil {
-    ctx.Debugf("Failed to execute query (Lookup): %s", err)
+    ctx.Debugf("Failed to execute query (StorageLookup): %s", err)
     return err
   }
 
@@ -35,11 +33,11 @@ func LookupFromDB(
   return nil
 }
 
-func Lookup(ctx *context.RequestContext, id uint32) (*stf.Storage, error) {
-  closer := ctx.LogMark("[Storage.Lookup]")
+func StorageLookup(ctx *RequestContext, id uint32) (*Storage, error) {
+  closer := ctx.LogMark("[Storage.StorageLookup]")
   defer closer()
 
-  var s stf.Storage
+  var s Storage
   cache := ctx.Cache()
   cacheKey := cache.CacheKey("storage", strconv.FormatUint(uint64(id), 10))
   err := cache.Get(cacheKey, &s)
@@ -50,7 +48,7 @@ func Lookup(ctx *context.RequestContext, id uint32) (*stf.Storage, error) {
 
   ctx.Debugf("Cache MISS for '%s', fetching from database", cacheKey)
 
-  err = LookupFromDB(ctx, id, &s)
+  err = StorageLookupFromDB(ctx, id, &s)
   if err != nil {
     return nil, err
   }
@@ -59,10 +57,10 @@ func Lookup(ctx *context.RequestContext, id uint32) (*stf.Storage, error) {
   return &s, nil
 }
 
-func LookupMulti(
-  ctx *context.RequestContext,
+func StorageLookupMulti(
+  ctx *RequestContext,
   ids []uint32,
-) ([]stf.Storage, error) {
+) ([]Storage, error) {
 
   cache := ctx.Cache()
 
@@ -73,18 +71,18 @@ func LookupMulti(
   }
 
   var cached map[string]interface {}
-  cached, err := cache.GetMulti(keys, func() interface {} { return &stf.Storage {} })
+  cached, err := cache.GetMulti(keys, func() interface {} { return &Storage {} })
   if err != nil {
     return nil, err
   }
 
-  var ret []stf.Storage
+  var ret []Storage
   for _, id := range ids {
     key  := cache.CacheKey("storage", strconv.FormatUint(uint64(id), 10))
-    st, ok := cached[key].(stf.Storage)
+    st, ok := cached[key].(Storage)
 
     if ! ok {
-      err = LookupFromDB(ctx, id, &st)
+      err = StorageLookupFromDB(ctx, id, &st)
       if err != nil {
         return nil, err
       }
@@ -94,7 +92,7 @@ func LookupMulti(
   return ret, nil
 }
 
-func LoadWritable(ctx *context.RequestContext, clusterId uint32, isRepair bool) ([]*stf.Storage, error) {
+func StorageLoadWritable(ctx *RequestContext, clusterId uint32, isRepair bool) ([]*Storage, error) {
   closer := ctx.LogMark("[Storage.LoadWritableStorages]")
   defer closer()
 
@@ -102,9 +100,9 @@ func LoadWritable(ctx *context.RequestContext, clusterId uint32, isRepair bool) 
   binds := []interface {} { clusterId, }
   var modes []int
   if isRepair {
-    modes = stf.WRITABLE_MODES_ON_REPAIR
+    modes = WRITABLE_MODES_ON_REPAIR
   } else {
-    modes = stf.WRITABLE_MODES
+    modes = WRITABLE_MODES
   }
 
   ctx.Debugf("Repair flag is '%v', using %+v for modes", isRepair, modes)
@@ -126,7 +124,7 @@ func LoadWritable(ctx *context.RequestContext, clusterId uint32, isRepair bool) 
   }
 
   var ids []uint32
-  var list []*stf.Storage
+  var list []*Storage
   var id uint32
   for rows.Next() {
     err = rows.Scan(&id)
@@ -138,7 +136,7 @@ func LoadWritable(ctx *context.RequestContext, clusterId uint32, isRepair bool) 
   }
 
   for _, id = range ids {
-    s, err := Lookup(ctx, id)
+    s, err := StorageLookup(ctx, id)
     if err != nil {
       return nil, err
     }

@@ -1,4 +1,4 @@
-package context
+package stf
 
 import (
   "crypto/sha1"
@@ -14,7 +14,6 @@ import (
   "path/filepath"
   "time"
   "code.google.com/p/gcfg"
-  "stf"
   "strconv"
   "strings"
   _ "github.com/go-sql-driver/mysql"
@@ -29,13 +28,13 @@ func (d DebugLog) Printf(format string, args ...interface{}) {
 }
 
 type GlobalContext struct {
-  config    *stf.Config
+  config    *Config
   home      string
-  cache     *stf.MemdClient
+  cache     *MemdClient
   mainDB    *sql.DB
   queueDB   []*sql.DB
   debugLog  DebugLog
-  idgen     stf.UUIDGen
+  idgen     UUIDGen
 }
 
 type RequestContext struct {
@@ -49,8 +48,8 @@ type RequestContext struct {
   txnCommited     bool
 }
 
-func (ctx *GlobalContext) NewConfig () (*stf.Config, error) {
-  cfg   := &stf.Config {}
+func (ctx *GlobalContext) NewConfig () (*Config, error) {
+  cfg   := &Config {}
 
   file  := os.Getenv("STF_CONFIG")
   if file == "" {
@@ -79,7 +78,7 @@ func NewContext() (*GlobalContext, error) {
   return ctx, nil
 }
 
-func Bootstrap () (*GlobalContext, error) {
+func BootstrapContext() (*GlobalContext, error) {
   ctx, err  := NewContext()
   if err != nil {
     return nil, err
@@ -101,9 +100,9 @@ func (self *GlobalContext) Debugf (format string, args ...interface {}) {
 }
 
 func (self *GlobalContext) Home() string { return self.home }
-func (self *GlobalContext) Config() *stf.Config { return self.config }
+func (self *GlobalContext) Config() *Config { return self.config }
 
-func (self *GlobalContext) connectDB (config stf.DatabaseConfig) *sql.DB {
+func (self *GlobalContext) connectDB (config DatabaseConfig) *sql.DB {
   if config.Dbtype == "" {
     config.Dbtype = "mysql"
   }
@@ -161,14 +160,14 @@ func (self *GlobalContext) QueueDB(i int) *sql.DB {
   return self.queueDB[i]
 }
 
-func (self *GlobalContext) IdGenerator() *stf.UUIDGen {
+func (self *GlobalContext) IdGenerator() *UUIDGen {
   return &self.idgen
 }
 
-func (self *GlobalContext) Cache() *stf.MemdClient {
+func (self *GlobalContext) Cache() *MemdClient {
   if self.cache == nil {
     config := *self.Config()
-    self.cache = stf.NewMemdClient(config.Memcached.Servers...)
+    self.cache = NewMemdClient(config.Memcached.Servers...)
   }
   return self.cache
 }
@@ -219,11 +218,11 @@ func (self *RequestContext) LogMark(format string, args ...interface{}) func () 
   }
 }
 
-func (self *RequestContext) Cache() *stf.MemdClient {
+func (self *RequestContext) Cache() *MemdClient {
   return self.globalContext.Cache()
 }
 
-func (self *RequestContext) IdGenerator() *stf.UUIDGen {
+func (self *RequestContext) IdGenerator() *UUIDGen {
   return self.globalContext.IdGenerator()
 }
 

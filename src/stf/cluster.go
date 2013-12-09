@@ -1,4 +1,4 @@
-package cluster
+package stf
 
 import (
   "bytes"
@@ -7,10 +7,6 @@ import (
   "fmt"
   "io"
   "sort"
-  "stf"
-  "stf/context"
-  "stf/entity"
-  "stf/storage"
   "strconv"
 )
 
@@ -29,7 +25,7 @@ func (self ClusterCandidates) Prepare(objectId uint64) {
   idStr := strconv.FormatUint(objectId, 10)
   for _, x := range self {
     key := strconv.FormatUint(uint64(x.Id), 10) + idStr
-    x.sortHint = stf.MurmurHash([]byte(key))
+    x.sortHint = MurmurHash([]byte(key))
   }
 }
 func (self ClusterCandidates) Len() int { return len(self) }
@@ -38,12 +34,12 @@ func (self ClusterCandidates) Less(i, j int) bool {
   return self[i].sortHint < self[j].sortHint
 }
 
-func LoadWritable (ctx *context.RequestContext) (ClusterCandidates, error) {
+func ClusterLoadWritable (ctx *RequestContext) (ClusterCandidates, error) {
   closer := ctx.LogMark("[Cluster.LoadWritable]")
   defer closer()
 
   tx := ctx.Txn()
-  rows, err := tx.Query("SELECT id, name, mode FROM storage_cluster WHERE mode = ?", stf.STORAGE_CLUSTER_MODE_READ_WRITE)
+  rows, err := tx.Query("SELECT id, name, mode FROM storage_cluster WHERE mode = ?", STORAGE_CLUSTER_MODE_READ_WRITE)
 
   if err != nil {
     ctx.Debugf("Failed to execute query: %s", err)
@@ -66,11 +62,11 @@ func LoadWritable (ctx *context.RequestContext) (ClusterCandidates, error) {
   return list, nil
 }
 
-func LoadCandidatesFor(ctx *context.RequestContext, objectId uint64) (ClusterCandidates, error) {
+func ClusterLoadCandidatesFor(ctx *RequestContext, objectId uint64) (ClusterCandidates, error) {
   closer := ctx.LogMark("[Cluster.LoadCandidatesFor]")
   defer closer()
 
-  list, err := LoadWritable(ctx)
+  list, err := ClusterLoadWritable(ctx)
   if err != nil {
     return nil, err
   }
@@ -96,10 +92,10 @@ func calcMD5 (input interface { Read([]byte) (int, error) } ) []byte {
   return h.Sum(nil)
 }
 
-func Store(
-  ctx *context.RequestContext,
+func ClusterStore(
+  ctx *RequestContext,
   clusterId uint32,
-  objectObj *stf.Object,
+  objectObj *Object,
   input *bytes.Reader,
   minimumToStore int,
   isRepair bool,
@@ -109,7 +105,7 @@ func Store(
   closer := ctx.LogMark("[Cluster.Store]")
   defer closer()
 
-  storages, err := storage.LoadWritable(ctx, clusterId, isRepair)
+  storages, err := StorageLoadWritable(ctx, clusterId, isRepair)
   if err != nil {
     ctx.Debugf("Failed to load storage candidates for writing: %s", err)
     return err
@@ -131,7 +127,7 @@ func Store(
     var fetchedMD5 []byte
     fetchOK := false
     if ! force {
-      fetchedContent, err = entity.FetchContent(
+      fetchedContent, err = EntityFetchContent(
         ctx,
         objectObj,
         storageObj.Id,
@@ -158,7 +154,7 @@ func Store(
       return err
     }
 
-    err = entity.Store(
+    err = EntityStore(
       ctx,
       storageObj,
       objectObj,
@@ -187,6 +183,6 @@ func Store(
   return nil
 }
 
-func RegisterForObject(ctx *context.RequestContext, clusterId uint32, objectId uint64) error {
+func ClusterRegisterForObject(ctx *RequestContext, clusterId uint32, objectId uint64) error {
   return nil
 }

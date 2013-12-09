@@ -1,14 +1,11 @@
-package bucket
+package stf
 
 import (
   "errors"
-  "stf"
-  "stf/context"
-  "stf/queue"
   "strconv"
 )
 
-func LookupIdByName(ctx *context.RequestContext, name string) (uint64, error) {
+func BucketLookupIdByName(ctx *RequestContext, name string) (uint64, error) {
 
   closer := ctx.LogMark("[Bucket.LookupIdByName]")
   defer closer()
@@ -29,10 +26,10 @@ func LookupIdByName(ctx *context.RequestContext, name string) (uint64, error) {
   return id, nil
 }
 
-func LookupFromDB(
-  ctx *context.RequestContext,
+func BucketLookupFromDB(
+  ctx *RequestContext,
   id uint64,
-  b   *stf.Bucket,
+  b   *Bucket,
 ) (error) {
   tx  := ctx.Txn()
   row := tx.QueryRow("SELECT id, name FROM bucket WHERE id = ?", id)
@@ -44,11 +41,11 @@ func LookupFromDB(
   return nil
 }
 
-func Lookup(ctx *context.RequestContext, id uint64) (*stf.Bucket, error) {
+func BucketLookup(ctx *RequestContext, id uint64) (*Bucket, error) {
   closer := ctx.LogMark("[Bucket.Lookup]")
   defer closer()
 
-  var b stf.Bucket
+  var b Bucket
   cache := ctx.Cache()
   cacheKey := cache.CacheKey("bucket", strconv.FormatUint(id, 10))
   err := cache.Get(cacheKey, &b)
@@ -60,7 +57,7 @@ func Lookup(ctx *context.RequestContext, id uint64) (*stf.Bucket, error) {
 
   ctx.Debugf("Cache MISS. Loading from database")
 
-  err = LookupFromDB(ctx, id, &b)
+  err = BucketLookupFromDB(ctx, id, &b)
   if err != nil {
     return nil, err
   }
@@ -70,7 +67,7 @@ func Lookup(ctx *context.RequestContext, id uint64) (*stf.Bucket, error) {
   return &b, nil;
 }
 
-func Create(ctx *context.RequestContext, id uint64, name string) error {
+func BucketCreate(ctx *RequestContext, id uint64, name string) error {
   closer := ctx.LogMark("[Bucket.Create]")
   defer closer()
 
@@ -90,7 +87,7 @@ func Create(ctx *context.RequestContext, id uint64, name string) error {
   return nil
 }
 
-func MarkForDelete(ctx *context.RequestContext, id uint64) error {
+func BucketMarkForDelete(ctx *RequestContext, id uint64) error {
   tx := ctx.Txn()
 
   res, err := tx.Exec("REPLACE INTO deleted_bucket SELECT * FROM bucket WHERE id = ?", id)
@@ -125,7 +122,7 @@ func MarkForDelete(ctx *context.RequestContext, id uint64) error {
   return nil
 }
 
-func DeleteObjects(ctx *context.RequestContext, id uint64) error {
+func DeleteObjects(ctx *RequestContext, id uint64) error {
   tx := ctx.Txn()
 
   rows, err := tx.Query("SELECT id FROM object WHERE bucket_id = ?", id)
@@ -142,7 +139,7 @@ func DeleteObjects(ctx *context.RequestContext, id uint64) error {
       return err
     }
 
-    err = queue.Insert(ctx, "delete_object", strconv.FormatUint(objectId, 10))
+    err = QueueInsert(ctx, "delete_object", strconv.FormatUint(objectId, 10))
     if err != nil {
       ctx.Debugf("Failed to insert object ID in delete_object queue: %s", err)
     }
@@ -156,7 +153,7 @@ func DeleteObjects(ctx *context.RequestContext, id uint64) error {
   return nil
 }
 
-func Delete(ctx *context.RequestContext, id uint64, recursive bool) error {
+func Delete(ctx *RequestContext, id uint64, recursive bool) error {
   if recursive {
     err := DeleteObjects(ctx, id)
     if err != nil {
