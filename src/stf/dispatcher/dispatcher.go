@@ -315,8 +315,8 @@ func (self *Dispatcher) DeleteBucket (ctx *context.RequestContext, bucketName st
 var reMatchSuffix = regexp.MustCompile(`\.([a-zA-Z0-9]+)$`)
 func (self *Dispatcher) CreateObject (ctx *context.RequestContext, bucketName string, objectName string) *stf.HTTPResponse {
 
-//  ctx.TxnBegin()
-//  defer ctx.TxnRollback()
+  ctx.TxnBegin()
+  defer ctx.TxnRollback()
 
   bucketId, err := bucket.LookupIdByName(ctx, bucketName)
   if err != nil {
