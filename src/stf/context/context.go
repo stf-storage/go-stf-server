@@ -7,10 +7,11 @@ import (
   "fmt"
   "io"
   "log"
+  "math/rand"
   "net/http"
   "os"
   "path"
-  "math/rand"
+  "path/filepath"
   "time"
   "code.google.com/p/gcfg"
   "stf"
@@ -48,9 +49,17 @@ type RequestContext struct {
   txnCommited     bool
 }
 
-func NewConfig (ctx *GlobalContext) (*stf.Config, error) {
+func (ctx *GlobalContext) NewConfig () (*stf.Config, error) {
   cfg   := &stf.Config {}
-  file  := path.Join(ctx.Home(), "etc", "config.gcfg")
+
+  file  := os.Getenv("STF_CONFIG")
+  if file == "" {
+    file = path.Join("etc", "config.gcfg")
+  }
+  if ! filepath.IsAbs(file) {
+    file = path.Join(ctx.Home(), file)
+  }
+
   err := gcfg.ReadFileInto(cfg, file)
   if err != nil {
     return nil, err
@@ -76,7 +85,7 @@ func Bootstrap () (*GlobalContext, error) {
     return nil, err
   }
 
-  cfg, err  := NewConfig(ctx)
+  cfg, err  := ctx.NewConfig()
   if err != nil {
     return nil, err
   }
