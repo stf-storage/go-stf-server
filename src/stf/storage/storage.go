@@ -6,20 +6,7 @@ import (
   "stf/context"
   "strconv"
   "strings"
-  "time"
 )
-
-func NewFromMap(st map[interface{}]interface {}) *stf.Storage {
-  rawUpdatedAt := st["UpdatedAt"].([]interface{})
-  s := stf.Storage{
-    Id: uint32(st["Id"].(int64)),
-    Uri: st["Uri"].(string),
-    Mode: int(st["Mode"].(int64)),
-    CreatedAt: int(st["CreatedAt"].(int64)),
-    UpdatedAt: time.Unix(rawUpdatedAt[0].(int64), rawUpdatedAt[1].(int64)),
-  }
-  return &s
-}
 
 func LookupFromDB(
   ctx *context.RequestContext,

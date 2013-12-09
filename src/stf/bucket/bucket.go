@@ -1,15 +1,3 @@
-/*
-
-=head1 NAME
-
-Bucket - STF Bucket
-
-=head1 SYNOPSIS
-
-    b := bucket.Load(1234)
-
-*/
-
 package bucket
 
 import (
@@ -18,7 +6,6 @@ import (
   "stf/context"
   "stf/queue"
   "strconv"
-  "time"
 )
 
 func LookupIdByName(ctx *context.RequestContext, name string) (uint64, error) {
@@ -40,18 +27,6 @@ func LookupIdByName(ctx *context.RequestContext, name string) (uint64, error) {
 
   ctx.Debugf("Found id '%d' for bucket '%s'", id, name)
   return id, nil
-}
-
-// Used to load this from cache
-func NewFromMap (st map[interface{}]interface{}) *stf.Bucket {
-  rawUpdatedAt := st["UpdatedAt"].([]interface{})
-  b := stf.Bucket {
-    Id: st["Id"].(uint64),
-    Name: st["Name"].(string),
-    UpdatedAt: time.Unix(rawUpdatedAt[0].(int64), rawUpdatedAt[1].(int64)),
-  }
-
-  return &b
 }
 
 func LookupFromDB(

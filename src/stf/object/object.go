@@ -14,7 +14,6 @@ import (
   "stf/storage"
   "strconv"
   "strings"
-  "time"
   randbo "github.com/dustin/randbo"
 )
 
@@ -40,21 +39,6 @@ func LookupIdByBucketAndPath(ctx *context.RequestContext, bucketObj *stf.Bucket,
   ctx.Debugf("Loaded Object ID '%d' from %s/%s", id, bucketObj.Name, path)
 
   return id, nil
-}
-
-func NewFromMap(st map[interface{}]interface{}) *stf.Object {
-  rawUpdatedAt := st["UpdatedAt"].([]interface{})
-  o := stf.Object {
-    Id:           st["Id"].(uint64),
-    BucketId:     st["BucketId"].(uint64),
-    Name:         st["Name"].(string),
-    InternalName: st["InternalName"].(string),
-    Size:         int(st["Size"].(int64)),
-    Status:       int(st["Status"].(int64)),
-    CreatedAt:    int(st["CreatedAt"].(int64)),
-    UpdatedAt: time.Unix(rawUpdatedAt[0].(int64), rawUpdatedAt[1].(int64)),
-  }
-  return &o
 }
 
 func LookupFromDB(
@@ -129,7 +113,6 @@ func GetStoragesFor(
 
   if err == nil {
     // Cache HIT. we need to check for the validity of the storages
-    
     list, err = storage.LookupMulti(ctx, storageIds)
     if err != nil {
       list = []stf.Storage {}
