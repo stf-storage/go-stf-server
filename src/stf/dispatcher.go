@@ -162,7 +162,9 @@ func (self *Dispatcher) CreateBucket(ctx *RequestContext, bucketName string, obj
     return &HTTPResponse { Code: 400, Message: "Bad bucket name" }
   }
 
-  id, err := BucketLookupIdByName(ctx, bucketName)
+  bucketApi := ctx.BucketApi()
+
+  id, err := bucketApi.LookupIdByName(bucketName)
   if err == nil { // No error, so we found a bucket
     ctx.Debugf("Bucket '%s' already exists (id = %d)", bucketName, id)
     return HTTPNoContent
@@ -175,8 +177,7 @@ func (self *Dispatcher) CreateBucket(ctx *RequestContext, bucketName string, obj
   id = ctx.IdGenerator().CreateId()
   log.Printf("id = %d", id)
 
-  err = BucketCreate(
-    ctx,
+  err = bucketApi.Create(
     id,
     bucketName,
   )
@@ -195,17 +196,19 @@ func (self *Dispatcher) FetchObject(ctx *RequestContext, bucketName string, obje
   ctx.TxnBegin()
   defer ctx.TxnRollback()
 
-  bucketId, err := BucketLookupIdByName(ctx, bucketName)
+  bucketApi := ctx.BucketApi()
+  bucketId, err := bucketApi.LookupIdByName(bucketName)
   if err != nil {
     self.Debugf("Bucket %s does not exist", bucketName)
     return HTTPNotFound
   }
-  bucketObj, err := BucketLookup(ctx, bucketId)
+  bucketObj, err := bucketApi.Lookup(bucketId)
   if err != nil {
     return HTTPNotFound
   }
 
-  objectId, err := ObjectLookupIdByBucketAndPath(ctx, bucketObj, objectName)
+  objectApi := ctx.ObjectApi()
+  objectId, err := objectApi.LookupIdByBucketAndPath(bucketObj, objectName)
   switch {
   case err == sql.ErrNoRows:
     // failed to lookup, 404
@@ -215,15 +218,14 @@ func (self *Dispatcher) FetchObject(ctx *RequestContext, bucketName string, obje
     return HTTPInternalServerError
   }
 
-  objectObj, err := ObjectLookup(ctx, objectId)
+  objectObj, err := objectApi.Lookup(objectId)
   if err != nil {
     return HTTPNotFound
   }
 
   ifModifiedSince := ctx.Request.Header.Get("If-Modified-Since")
   doHealthCheck := rand.Float64() < 0.001
-  uri, err := ObjectGetAnyValidEntityUrl(
-    ctx,
+  uri, err := objectApi.GetAnyValidEntityUrl(
     bucketObj,
     objectObj,
     doHealthCheck,
@@ -254,12 +256,13 @@ func (self *Dispatcher) DeleteObject (ctx *RequestContext, bucketName string, ob
   ctx.TxnBegin()
   defer ctx.TxnRollback()
 
-  bucketId, err := BucketLookupIdByName(ctx, bucketName)
+  bucketApi := ctx.BucketApi()
+  bucketId, err := bucketApi.LookupIdByName(bucketName)
   if err != nil {
     return &HTTPResponse { Code: 500, Message: "Failed to find bucket" }
   }
 
-  bucketObj, err := BucketLookup(ctx, bucketId)
+  bucketObj, err := bucketApi.Lookup(bucketId)
   if err != nil {
     return HTTPNotFound
   }
@@ -268,13 +271,14 @@ func (self *Dispatcher) DeleteObject (ctx *RequestContext, bucketName string, ob
     return &HTTPResponse { Code: 500, Message: "Could not extact object name" }
   }
 
-  objectId, err := ObjectLookupIdByBucketAndPath(ctx, bucketObj, objectName)
+  objectApi := ctx.ObjectApi()
+  objectId, err := objectApi.LookupIdByBucketAndPath(bucketObj, objectName)
   if err != nil {
     ctx.Debugf("Failed to lookup object %s/%s", bucketName, objectName)
     return HTTPNotFound
   }
 
-  err = ObjectMarkForDelete(ctx, objectId)
+  err = objectApi.MarkForDelete(objectId)
   if err != nil {
     self.Debugf("Failed to mark object (%d) as deleted: %s", objectId, err)
     return &HTTPResponse { Code : 500, Message: "Failed to mark object as deleted" }
@@ -290,13 +294,14 @@ func (self *Dispatcher) DeleteObject (ctx *RequestContext, bucketName string, ob
 }
 
 func (self *Dispatcher) DeleteBucket (ctx *RequestContext, bucketName string) *HTTPResponse {
-  id, err := BucketLookupIdByName(ctx, bucketName)
+  bucketApi := ctx.BucketApi()
+  id, err := bucketApi.LookupIdByName(bucketName)
 
   if err != nil {
     return &HTTPResponse { Code: 500, Message: "Failed to find bucket" }
   }
 
-  err = BucketMarkForDelete(ctx, id)
+  err = bucketApi.MarkForDelete(id)
   if err != nil {
     self.Debugf("Failed to delete bucket %s", err)
     return &HTTPResponse { Code: 500, Message: "Failed to delete bucket" }
@@ -313,12 +318,13 @@ func (self *Dispatcher) CreateObject (ctx *RequestContext, bucketName string, ob
   ctx.TxnBegin()
   defer ctx.TxnRollback()
 
-  bucketId, err := BucketLookupIdByName(ctx, bucketName)
+  bucketApi := ctx.BucketApi()
+  bucketId, err := bucketApi.LookupIdByName(bucketName)
   if err != nil {
     return &HTTPResponse { Code: 500, Message: "Failed to find bucket" }
   }
 
-  bucketObj, err := BucketLookup(ctx, bucketId)
+  bucketObj, err := bucketApi.Lookup(bucketId)
   if err != nil {
     return HTTPNotFound
   }
@@ -327,7 +333,8 @@ func (self *Dispatcher) CreateObject (ctx *RequestContext, bucketName string, ob
     return &HTTPResponse { Code: 500, Message: "Could not extact object name" }
   }
 
-  oldObjectId, err := ObjectLookupIdByBucketAndPath(ctx, bucketObj, objectName)
+  objectApi := ctx.ObjectApi()
+  oldObjectId, err := objectApi.LookupIdByBucketAndPath(bucketObj, objectName)
   switch {
   case err == sql.ErrNoRows:
     // Just means that this is a new object
@@ -342,7 +349,7 @@ func (self *Dispatcher) CreateObject (ctx *RequestContext, bucketName string, ob
       objectName,
       bucketName,
     )
-    ObjectMarkForDelete(ctx, oldObjectId)
+    objectApi.MarkForDelete(oldObjectId)
   }
 
   matches := reMatchSuffix.FindStringSubmatch(ctx.Request.URL.Path)
@@ -370,8 +377,7 @@ func (self *Dispatcher) CreateObject (ctx *RequestContext, bucketName string, ob
 
   buf := bytes.NewReader(body)
 
-  err = ObjectStore(
-    ctx,
+  err = objectApi.Store(
     objectId,
     bucketId,
     objectName,

@@ -12,10 +12,29 @@ import (
   randbo "github.com/dustin/randbo"
 )
 
+type Object struct {
+  BucketId      uint64
+  Name          string
+  InternalName  string
+  Size          int
+  Status        int
+  StfObject
+}
+
+type ObjectApi struct {
+  *BaseApi
+}
+
 var ErrContentNotModified error = errors.New("Request Content Not Modified")
 
-func ObjectLookupIdByBucketAndPath(ctx *RequestContext, bucketObj *Bucket, path string) (uint64, error) {
-  closer := ctx.LogMark("[Object.ObjectLookupIdByBucketAndPath]")
+func NewObjectApi (ctx *RequestContext) *ObjectApi {
+  return &ObjectApi { &BaseApi { ctx } }
+}
+
+func (self *ObjectApi) LookupIdByBucketAndPath(bucketObj *Bucket, path string) (uint64, error) {
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Object.LookupIdByBucketAndPath]")
   defer closer()
 
   tx := ctx.Txn()
@@ -28,7 +47,7 @@ func ObjectLookupIdByBucketAndPath(ctx *RequestContext, bucketObj *Bucket, path 
     ctx.Debugf("Could not find any object for %s/%s", bucketObj.Name, path)
     return 0, sql.ErrNoRows
   case err != nil:
-    return 0, errors.New(fmt.Sprintf("Failed to execute query (ObjectLookupByBucketAndPath): %s", err))
+    return 0, errors.New(fmt.Sprintf("Failed to execute query (LookupByBucketAndPath): %s", err))
   }
 
   ctx.Debugf("Loaded Object ID '%d' from %s/%s", id, bucketObj.Name, path)
@@ -36,14 +55,13 @@ func ObjectLookupIdByBucketAndPath(ctx *RequestContext, bucketObj *Bucket, path 
   return id, nil
 }
 
-func ObjectLookupFromDB(
-  ctx *RequestContext,
-  id  uint64,
-  o   *Object,
-) (error) {
+func (self *ObjectApi) LookupFromDB(id  uint64) (*Object, error) {
+  ctx := self.Ctx()
+
   tx := ctx.Txn()
   row := tx.QueryRow("SELECT id, bucket_id, name, internal_name, size, status, created_at, updated_at  FROM object WHERE id = ?", id)
 
+  var o Object
   err := row.Scan(
     &o.Id,
     &o.BucketId,
@@ -56,14 +74,16 @@ func ObjectLookupFromDB(
   )
 
   if err != nil {
-    ctx.Debugf("Failed to execute query (ObjectLookup): %s", err)
-    return err
+    ctx.Debugf("Failed to execute query (Lookup): %s", err)
+    return nil, err
   }
 
-  return nil
+  return &o, nil
 }
 
-func ObjectLookup(ctx *RequestContext, id uint64) (*Object, error) {
+func (self *ObjectApi) Lookup(id uint64) (*Object, error) {
+  ctx := self.Ctx()
+
   closer := ctx.LogMark("[Object.ObjectLookup]")
   defer closer()
 
@@ -76,20 +96,18 @@ func ObjectLookup(ctx *RequestContext, id uint64) (*Object, error) {
     return &o, nil
   }
 
-  err = ObjectLookupFromDB(ctx, id, &o)
+  optr, err := self.LookupFromDB(id)
   if err != nil {
     return nil, err
   }
 
   ctx.Debugf("Successfully loaded object %d from database", id)
-  cache.Set(cacheKey, o, 3600)
-  return &o, nil
+  cache.Set(cacheKey, *optr, 3600)
+  return optr, nil
 }
 
-func ObjectGetStoragesFor(
-  ctx *RequestContext,
-  objectObj *Object,
-) ([]Storage, error) {
+func (self *ObjectApi) GetStoragesFor(objectObj *Object) ([]Storage, error) {
+  ctx := self.Ctx()
   closer := ctx.LogMark("[Object.GetStoragesFor]")
   defer closer()
 
@@ -108,7 +126,7 @@ func ObjectGetStoragesFor(
 
   if err == nil {
     // Cache HIT. we need to check for the validity of the storages
-    list, err = StorageLookupMulti(ctx, storageIds)
+    list, err = ctx.StorageApi().LookupMulti(storageIds)
     if err != nil {
       list = []Storage {}
     } else {
@@ -195,13 +213,13 @@ func EnqueueRepair(
   cache.Add(cacheKey, 1, 3600)
 }
 
-func ObjectGetAnyValidEntityUrl (
-  ctx *RequestContext, 
+func (self *ObjectApi) GetAnyValidEntityUrl (
   bucketObj *Bucket,
   objectObj *Object,
   doHealthCheck bool, // true if we want to run repair
   ifModifiedSince string,
 ) (string, error) {
+  ctx := self.Ctx()
   closer := ctx.LogMark("[Object.GetAnyValidEntityUrl]")
   defer closer()
 
@@ -215,7 +233,7 @@ func ObjectGetAnyValidEntityUrl (
     }()
   }
 
-  storages, err := ObjectGetStoragesFor(ctx, objectObj)
+  storages, err := self.GetStoragesFor(objectObj)
   if err != nil {
     return "", err
   }
@@ -261,7 +279,8 @@ func ObjectGetAnyValidEntityUrl (
   return "", nil
 }
 
-func ObjectMarkForDelete (ctx *RequestContext, id uint64) error {
+func (self *ObjectApi) MarkForDelete (id uint64) error {
+  ctx := self.Ctx()
   tx := ctx.Txn()
   res, err := tx.Exec("REPLACE INTO deleted_object SELECT * FROM object WHERE id = ?", id)
 
@@ -300,7 +319,8 @@ func ObjectMarkForDelete (ctx *RequestContext, id uint64) error {
   return nil
 }
 
-func ObjectDelete (ctx *RequestContext, id uint64) error {
+func (self *ObjectApi) Delete (id uint64) error {
+  ctx := self.Ctx()
   tx := ctx.Txn()
   _, err := tx.Exec("DELETE FROM object WHERE id = ?", id)
   if err != nil {
@@ -317,14 +337,14 @@ func ObjectDelete (ctx *RequestContext, id uint64) error {
   return nil
 }
 
-func Create (
-  ctx *RequestContext, 
+func (self *ObjectApi) Create (
   objectId uint64,
   bucketId uint64,
   objectName string,
   internalName string,
   size int64,
 ) error {
+  ctx := self.Ctx()
   closer := ctx.LogMark("[Object.Create]")
   defer closer()
   tx := ctx.Txn()
@@ -339,8 +359,7 @@ func Create (
   return nil
 }
 
-func ObjectAttemptCreate (
-  ctx *RequestContext, 
+func (self *ObjectApi) AttemptCreate (
   objectId uint64,
   bucketId uint64,
   objectName string,
@@ -353,8 +372,7 @@ func ObjectAttemptCreate (
     }
   }()
 
-  err = Create(
-    ctx,
+  err = self.Create(
     objectId,
     bucketId,
     objectName,
@@ -385,8 +403,7 @@ func createInternalName (suffix string) string {
   )
 }
 
-func ObjectStore (
-  ctx *RequestContext,
+func (self *ObjectApi) Store (
   objectId uint64,
   bucketId uint64,
   objectName string,
@@ -396,14 +413,15 @@ func ObjectStore (
   isRepair bool,
   force bool,
 ) error {
+  ctx := self.Ctx()
+
   closer := ctx.LogMark("[Object.Store]")
   defer closer()
 
   done := false
   for i := 0; i < 10; i++ {
     internalName := createInternalName(suffix)
-    err := ObjectAttemptCreate(
-      ctx,
+    err := self.AttemptCreate(
       objectId,
       bucketId,
       objectName,
@@ -431,18 +449,19 @@ func ObjectStore (
   defer func() {
     if ! done {
       ctx.Debugf("Something went wrong, deleting object to make sure")
-      ObjectDelete(ctx, objectId)
+      self.Delete(objectId)
     }
   }()
 
-  objectObj, err := ObjectLookup(ctx, objectId)
+  objectObj, err := self.Lookup(objectId)
   if err != nil {
     ctx.Debugf("Failed to lookup up object from DB: %s", err)
     return err
   }
 
   // Load all possible clusters ordered by a consistent hash
-  clusters, err := ClusterLoadCandidatesFor(ctx, objectId)
+  clusterApi := ctx.StorageClusterApi()
+  clusters, err := clusterApi.LoadCandidatesFor(objectId)
   if err != nil {
     return err
   }
@@ -454,8 +473,7 @@ func ObjectStore (
   }
 
   for _, clusterObj := range clusters {
-    err := ClusterStore(
-      ctx,
+    err := clusterApi.Store(
       clusterObj.Id,
       objectObj,
       input,
@@ -465,8 +483,7 @@ func ObjectStore (
     )
     if err == nil { // Success!
       ctx.Debugf("Successfully stored objects in cluster %d", clusterObj.Id)
-      ClusterRegisterForObject(
-        ctx,
+      clusterApi.RegisterForObject(
         clusterObj.Id,
         objectId,
       )

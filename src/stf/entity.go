@@ -8,11 +8,26 @@ import (
   "strings"
 )
 
-func EntityCreate (
-  ctx *RequestContext, 
+type Entity struct {
+  ObjectId uint64
+  StorageId uint64
+  Status    int
+}
+
+type EntityApi struct {
+  *BaseApi
+}
+
+func NewEntityApi (ctx *RequestContext) *EntityApi {
+  return &EntityApi { &BaseApi { ctx } }
+}
+
+func (self *EntityApi) Create (
   objectId uint64,
-  storageId uint32,
+  storageId uint64,
 ) error {
+  ctx := self.Ctx()
+
   closer := ctx.LogMark("[Entity.Create]")
   defer closer()
   tx := ctx.Txn()
@@ -27,23 +42,24 @@ func EntityCreate (
   return nil
 }
 
-func EntityFetchContent(
-  ctx *RequestContext,
+func (self *EntityApi) FetchContent(
   object *Object,
-  storageId uint32,
+  storageId uint64,
   isRepair bool,
 ) ([]byte, error) {
+  ctx := self.Ctx()
   closer := ctx.LogMark("[Entity.FetchContent]")
   defer closer()
   return nil, nil
 }
 
-func EntityStore(
-  ctx *RequestContext,
+func (self *EntityApi) Store(
   storageObj  *Storage,
   objectObj   *Object,
   input       *bytes.Reader,
 ) error {
+  ctx := self.Ctx()
+
   closer := ctx.LogMark("[Entity.Store]")
   defer closer()
 
@@ -79,8 +95,7 @@ func EntityStore(
 
   ctx.Debugf("Successfully stored object in %s", uri)
 
-  err = EntityCreate(
-    ctx,
+  err = self.Create(
     objectObj.Id,
     storageObj.Id,
   )

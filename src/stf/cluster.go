@@ -10,12 +10,19 @@ import (
   "strconv"
 )
 
-
 type StorageCluster struct {
-  Id uint32
   Name string
   Mode int
   sortHint uint32
+  StfObject
+}
+
+type StorageClusterApi struct {
+  *BaseApi
+}
+
+func NewStorageClusterApi (ctx *RequestContext) *StorageClusterApi {
+  return &StorageClusterApi { &BaseApi { ctx } }
 }
 
 // These are defined to allow sorting via the sort package
@@ -34,7 +41,9 @@ func (self ClusterCandidates) Less(i, j int) bool {
   return self[i].sortHint < self[j].sortHint
 }
 
-func ClusterLoadWritable (ctx *RequestContext) (ClusterCandidates, error) {
+func (self *StorageClusterApi) LoadWritable () (ClusterCandidates, error) {
+  ctx := self.Ctx()
+
   closer := ctx.LogMark("[Cluster.LoadWritable]")
   defer closer()
 
@@ -62,11 +71,12 @@ func ClusterLoadWritable (ctx *RequestContext) (ClusterCandidates, error) {
   return list, nil
 }
 
-func ClusterLoadCandidatesFor(ctx *RequestContext, objectId uint64) (ClusterCandidates, error) {
+func (self *StorageClusterApi) LoadCandidatesFor(objectId uint64) (ClusterCandidates, error) {
+  ctx := self.Ctx()
   closer := ctx.LogMark("[Cluster.LoadCandidatesFor]")
   defer closer()
 
-  list, err := ClusterLoadWritable(ctx)
+  list, err := self.LoadWritable()
   if err != nil {
     return nil, err
   }
@@ -92,20 +102,21 @@ func calcMD5 (input interface { Read([]byte) (int, error) } ) []byte {
   return h.Sum(nil)
 }
 
-func ClusterStore(
-  ctx *RequestContext,
-  clusterId uint32,
+func (self *StorageClusterApi) Store(
+  clusterId uint64,
   objectObj *Object,
   input *bytes.Reader,
   minimumToStore int,
   isRepair bool,
   force bool,
 ) error {
+  ctx := self.Ctx()
 
   closer := ctx.LogMark("[Cluster.Store]")
   defer closer()
 
-  storages, err := StorageLoadWritable(ctx, clusterId, isRepair)
+  storageApi := ctx.StorageApi()
+  storages, err := storageApi.LoadWritable(clusterId, isRepair)
   if err != nil {
     ctx.Debugf("Failed to load storage candidates for writing: %s", err)
     return err
@@ -117,6 +128,8 @@ func ClusterStore(
     expected = calcMD5(input)
   }
 
+  entityApi := ctx.EntityApi()
+
   stored := 0
   for _, storageObj := range storages {
     ctx.Debugf("Attempting to store to storage %s (id = %d)", storageObj.Uri, storageObj.Id)
@@ -127,8 +140,7 @@ func ClusterStore(
     var fetchedMD5 []byte
     fetchOK := false
     if ! force {
-      fetchedContent, err = EntityFetchContent(
-        ctx,
+      fetchedContent, err = entityApi.FetchContent(
         objectObj,
         storageObj.Id,
         isRepair,
@@ -154,8 +166,7 @@ func ClusterStore(
       return err
     }
 
-    err = EntityStore(
-      ctx,
+    err = entityApi.Store(
       storageObj,
       objectObj,
       input,
@@ -183,6 +194,6 @@ func ClusterStore(
   return nil
 }
 
-func ClusterRegisterForObject(ctx *RequestContext, clusterId uint32, objectId uint64) error {
+func (self *StorageClusterApi) RegisterForObject(clusterId uint64, objectId uint64) error {
   return nil
 }

@@ -6,11 +6,30 @@ import (
   "strings"
 )
 
-func StorageLookupFromDB(
-  ctx *RequestContext,
+type Storage struct {
+  ClusterId     uint64
+  Uri           string
+  Mode          int
+  StfObject
+}
+
+type StorageApi struct {
+  *BaseApi
+}
+
+func NewStorageApi (ctx *RequestContext) *StorageApi {
+  return &StorageApi { &BaseApi { ctx } }
+}
+
+func (self *StorageApi) LookupFromDB(
   id uint32,
   s   *Storage,
 ) (error) {
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Storage.LookupFromDB]")
+  defer closer()
+
   tx := ctx.Txn()
   row := tx.QueryRow("SELECT id, cluster_id, uri, mode, created_at, updated_at FROM storage WHERE id = ?", id)
 
@@ -33,7 +52,9 @@ func StorageLookupFromDB(
   return nil
 }
 
-func StorageLookup(ctx *RequestContext, id uint32) (*Storage, error) {
+func (self *StorageApi) Lookup(id uint32) (*Storage, error) {
+  ctx := self.Ctx()
+
   closer := ctx.LogMark("[Storage.StorageLookup]")
   defer closer()
 
@@ -48,7 +69,7 @@ func StorageLookup(ctx *RequestContext, id uint32) (*Storage, error) {
 
   ctx.Debugf("Cache MISS for '%s', fetching from database", cacheKey)
 
-  err = StorageLookupFromDB(ctx, id, &s)
+  err = self.LookupFromDB(id, &s)
   if err != nil {
     return nil, err
   }
@@ -57,10 +78,11 @@ func StorageLookup(ctx *RequestContext, id uint32) (*Storage, error) {
   return &s, nil
 }
 
-func StorageLookupMulti(
-  ctx *RequestContext,
-  ids []uint32,
-) ([]Storage, error) {
+func (self *StorageApi) LookupMulti(ids []uint32) ([]Storage, error) {
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Storage.LookupMulti]")
+  defer closer()
 
   cache := ctx.Cache()
 
@@ -73,6 +95,7 @@ func StorageLookupMulti(
   var cached map[string]interface {}
   cached, err := cache.GetMulti(keys, func() interface {} { return &Storage {} })
   if err != nil {
+    ctx.Debugf("GetMulti failed: %s", err)
     return nil, err
   }
 
@@ -82,17 +105,19 @@ func StorageLookupMulti(
     st, ok := cached[key].(Storage)
 
     if ! ok {
-      err = StorageLookupFromDB(ctx, id, &st)
+      s, err := self.Lookup(id)
       if err != nil {
         return nil, err
       }
+      st = *s
     }
     ret = append(ret, st)
   }
   return ret, nil
 }
 
-func StorageLoadWritable(ctx *RequestContext, clusterId uint32, isRepair bool) ([]*Storage, error) {
+func (self *StorageApi) LoadWritable(clusterId uint64, isRepair bool) ([]*Storage, error) {
+  ctx := self.Ctx()
   closer := ctx.LogMark("[Storage.LoadWritableStorages]")
   defer closer()
 
@@ -136,7 +161,7 @@ func StorageLoadWritable(ctx *RequestContext, clusterId uint32, isRepair bool) (
   }
 
   for _, id = range ids {
-    s, err := StorageLookup(ctx, id)
+    s, err := self.Lookup(id)
     if err != nil {
       return nil, err
     }

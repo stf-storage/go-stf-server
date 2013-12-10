@@ -38,6 +38,11 @@ type GlobalContext struct {
 }
 
 type RequestContext struct {
+  bucketApi         *BucketApi
+  entityApi         *EntityApi
+  objectApi         *ObjectApi
+  storageApi        *StorageApi
+  storageClusterApi *StorageClusterApi
   DebugLog        DebugLog
   globalContext   *GlobalContext
   Id              string
@@ -224,6 +229,41 @@ func (self *RequestContext) Cache() *MemdClient {
 
 func (self *RequestContext) IdGenerator() *UUIDGen {
   return self.globalContext.IdGenerator()
+}
+
+func (self *RequestContext) BucketApi() *BucketApi {
+  if self.bucketApi == nil {
+    self.bucketApi = NewBucketApi(self)
+  }
+  return self.bucketApi
+}
+
+func (self *RequestContext) EntityApi() *EntityApi {
+  if self.entityApi == nil {
+    self.entityApi = NewEntityApi(self)
+  }
+  return self.entityApi
+}
+
+func (self *RequestContext) ObjectApi() *ObjectApi {
+  if self.objectApi == nil {
+    self.objectApi = NewObjectApi(self)
+  }
+  return self.objectApi
+}
+
+func (self *RequestContext) StorageApi() *StorageApi {
+  if self.storageApi == nil {
+    self.storageApi = NewStorageApi(self)
+  }
+  return self.storageApi
+}
+
+func (self *RequestContext) StorageClusterApi() *StorageClusterApi {
+  if self.storageClusterApi == nil {
+    self.storageClusterApi = NewStorageClusterApi(self)
+  }
+  return self.storageClusterApi
 }
 
 func (self *RequestContext) Txn() *sql.Tx {

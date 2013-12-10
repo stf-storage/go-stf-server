@@ -5,8 +5,21 @@ import (
   "strconv"
 )
 
-func BucketLookupIdByName(ctx *RequestContext, name string) (uint64, error) {
+type Bucket struct {
+  Name          string
+  StfObject
+}
 
+type BucketApi struct {
+  *BaseApi
+}
+
+func NewBucketApi(ctx *RequestContext) (*BucketApi) {
+  return &BucketApi { &BaseApi { ctx } }
+}
+
+func (self *BucketApi) LookupIdByName(name string) (uint64, error) {
+  ctx := self.Ctx()
   closer := ctx.LogMark("[Bucket.LookupIdByName]")
   defer closer()
 
@@ -26,22 +39,26 @@ func BucketLookupIdByName(ctx *RequestContext, name string) (uint64, error) {
   return id, nil
 }
 
-func BucketLookupFromDB(
-  ctx *RequestContext,
+func (self *BucketApi) LookupFromDB(
   id uint64,
-  b   *Bucket,
-) (error) {
+) (*Bucket, error) {
+  ctx := self.Ctx()
+  closer := ctx.LogMark("[Bucket.LookupFromDB]")
+  defer closer()
+
+  var b Bucket
   tx  := ctx.Txn()
   row := tx.QueryRow("SELECT id, name FROM bucket WHERE id = ?", id)
   err := row.Scan(&b.Id, &b.Name)
   if err != nil {
     ctx.Debugf("Failed to scan query: %s", err)
-    return err
+    return nil, err
   }
-  return nil
+  return &b, nil
 }
 
-func BucketLookup(ctx *RequestContext, id uint64) (*Bucket, error) {
+func (self *BucketApi) Lookup(id uint64) (*Bucket, error) {
+  ctx := self.Ctx()
   closer := ctx.LogMark("[Bucket.Lookup]")
   defer closer()
 
@@ -57,17 +74,18 @@ func BucketLookup(ctx *RequestContext, id uint64) (*Bucket, error) {
 
   ctx.Debugf("Cache MISS. Loading from database")
 
-  err = BucketLookupFromDB(ctx, id, &b)
+  bptr, err := self.LookupFromDB(id)
   if err != nil {
     return nil, err
   }
   ctx.Debugf("Successfully looked up bucket '%d' from DB", b.Id)
-  cache.Set(cacheKey, b, 600)
+  cache.Set(cacheKey, *bptr, 600)
 
-  return &b, nil;
+  return bptr, nil;
 }
 
-func BucketCreate(ctx *RequestContext, id uint64, name string) error {
+func (self *BucketApi) Create(id uint64, name string) error {
+  ctx := self.Ctx()
   closer := ctx.LogMark("[Bucket.Create]")
   defer closer()
 
@@ -87,7 +105,8 @@ func BucketCreate(ctx *RequestContext, id uint64, name string) error {
   return nil
 }
 
-func BucketMarkForDelete(ctx *RequestContext, id uint64) error {
+func (self *BucketApi) MarkForDelete(id uint64) error {
+  ctx := self.Ctx()
   tx := ctx.Txn()
 
   res, err := tx.Exec("REPLACE INTO deleted_bucket SELECT * FROM bucket WHERE id = ?", id)
@@ -122,7 +141,8 @@ func BucketMarkForDelete(ctx *RequestContext, id uint64) error {
   return nil
 }
 
-func DeleteObjects(ctx *RequestContext, id uint64) error {
+func (self *BucketApi) DeleteObjects(id uint64) error {
+  ctx := self.Ctx()
   tx := ctx.Txn()
 
   rows, err := tx.Query("SELECT id FROM object WHERE bucket_id = ?", id)
@@ -153,9 +173,9 @@ func DeleteObjects(ctx *RequestContext, id uint64) error {
   return nil
 }
 
-func Delete(ctx *RequestContext, id uint64, recursive bool) error {
+func (self *BucketApi) Delete(id uint64, recursive bool) error {
   if recursive {
-    err := DeleteObjects(ctx, id)
+    err := self.DeleteObjects(id)
     if err != nil {
       return err
     }

@@ -49,7 +49,7 @@ func (self *MemdClient) GetMulti(
     return nil, err
   }
 
-  var ret map[string]interface {}
+  ret := make(map[string]interface {})
   for k, item := range items {
     v := makeContainer()
     err := msgpack.Unmarshal(item.Value, v)
