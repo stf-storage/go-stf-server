@@ -1,7 +1,6 @@
 package stf
 
 import (
-  "errors"
   "time"
 )
 
