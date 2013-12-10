@@ -10,6 +10,7 @@ export GOPATH
 DEPS="
   code.google.com/p/gcfg
   github.com/bradfitz/gomemcache/memcache
+  github.com/braintree/manners
   github.com/dustin/randbo
   github.com/go-sql-driver/mysql
   github.com/vmihailenco/msgpack
@@ -25,10 +26,9 @@ for dep in $DEPS; do
   done
 done
 
-echo "Building bin/storage"
-go build -o bin/storage cli_storage.go
-
-echo "Building bin/dispatcher"
-go build -o bin/dispatcher cli_dispatcher.go
+for executable in storage dispatcher; do
+  echo "Building bin/$executable"
+  go build -o bin/$executable cli_$executable.go
+done
 
 echo "Build done"

@@ -8,11 +8,13 @@ import (
   "io/ioutil"
   "log"
   "math/rand"
+  "net"
   "net/http"
   "regexp"
   "runtime"
   "strings"
   "strconv"
+  "github.com/braintree/manners"
 )
 
 type Dispatcher struct {
@@ -51,12 +53,14 @@ func (self *Dispatcher) Start () {
   }
 
   self.Debugf("Starting server at %s\n", self.Address)
-  server    := &http.Server{
-    Addr:     self.Address,
-    Handler:  self,
-  }
 
-  err := server.ListenAndServe()
+  baseListener, err := net.Listen("tcp", self.Address)
+  if err != nil {
+    panic(fmt.Sprintf("Failed to listen at %s: %s", self.Address, err))
+  }
+  listener := manners.NewListener(baseListener)
+
+  err = manners.Serve(listener, self)
   if err != nil {
     log.Fatal(
       fmt.Sprintf("Error from server's ListenAndServe: %s\n", err),
