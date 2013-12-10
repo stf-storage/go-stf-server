@@ -29,7 +29,7 @@ done
 
 for executable in storage dispatcher; do
   echo "Building bin/$executable"
-  go build -o bin/$executable cli_$executable.go
+  go build -a -o bin/$executable cli_$executable.go
 done
 
 echo "Build done"
