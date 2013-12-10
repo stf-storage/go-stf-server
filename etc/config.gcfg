@@ -1,0 +1,12 @@
+[Global]
+Debug = true
+
+[Dispatcher]
+ServerId = 1
+Listen   = :8080
+
+[MainDB]
+Username = root
+
+[Memcached]
+Servers = 127.0.0.1:11211
