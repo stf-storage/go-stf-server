@@ -112,29 +112,27 @@ func (self *GlobalContext) connectDB (config DatabaseConfig) *sql.DB {
     config.Dbtype = "mysql"
   }
 
-  if config.Hostname == "" {
-    config.Hostname = "127.0.0.1"
-  }
-
-  if config.Port <= 0 {
-    config.Port = 3306
+  if config.ConnectString == "" {
+    switch config.Dbtype {
+    case "mysql":
+      config.ConnectString = "tcp(127.0.0.1:3306)"
+    default:
+      panic(fmt.Sprintf(
+        "No database connect string provided, and can't assign a default value for dbtype '%s'",
+        config.Dbtype,
+      ))
+    }
   }
 
   if config.Dbname == "" {
     config.Dbname = "stf"
   }
 
-  if config.Protocol == "" {
-    config.Protocol = "tcp"
-  }
-
   dsn := fmt.Sprintf(
-    "%s:%s@%s(%s:%d)/%s?parseTime=true",
+    "%s:%s@%s/%s?parseTime=true",
     config.Username,
     config.Password,
-    config.Protocol,
-    config.Hostname,
-    config.Port,
+    config.ConnectString,
     config.Dbname,
   )
 

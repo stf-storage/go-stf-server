@@ -10,13 +10,13 @@ type DispatcherConfig struct {
 }
 
 type DatabaseConfig struct {
-  Dbtype    string
-  Username  string
-  Password  string
-  Protocol  string
-  Hostname  string
-  Port      uint32
-  Dbname    string
+  Dbtype        string
+  Username      string
+  Password      string
+  // tcp(127.0.0.1:3306)
+  // unix(/path/to/sock)
+  ConnectString string
+  Dbname        string
 }
 
 type MemcachedConfig struct {
