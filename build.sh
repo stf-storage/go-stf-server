@@ -13,6 +13,7 @@ DEPS="
   github.com/braintree/manners
   github.com/dustin/randbo
   github.com/go-sql-driver/mysql
+  github.com/lestrrat/go-server-starter-listener
   github.com/vmihailenco/msgpack
 "
 for dep in $DEPS; do
