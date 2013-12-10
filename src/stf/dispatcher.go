@@ -60,7 +60,7 @@ func (self *Dispatcher) Start () {
   if err == nil {
     pm := portmap[0]
     self.Debugf("Starting server at %s (start_server)", pm.Name)
-    baseListener, err = ss.ListenOn(pm)
+    baseListener, err = ss.NewListenerOn(pm)
     if err != nil {
       log.Printf("Failed to listen to start_server fd: %s", err)
       log.Printf("Continuing on to listen on regular address")
