@@ -42,6 +42,13 @@ func (self *Dispatcher) Debugf (format string, args ...interface {}) {
 }
 
 func (self *Dispatcher) Start () {
+  ncpu := runtime.NumCPU()
+  nmaxprocs := runtime.GOMAXPROCS(-1)
+  if ncpu != nmaxprocs {
+    self.Debugf("Setting GOMAXPROCS to %d (was %d)", ncpu, nmaxprocs)
+    runtime.GOMAXPROCS(ncpu)
+  }
+
   self.Debugf("Starting server at %s\n", self.Address)
   server    := &http.Server{
     Addr:     self.Address,
