@@ -16,7 +16,7 @@ type ContextForQueueApi interface {
   NumQueueDB() int
   QueueDB(int) (*sql.DB, error)
   Debugf(string, ...interface{})
-  LogMark(string, ...interface{})
+  LogMark(string, ...interface{}) func()
 }
 
 type QueueApi struct {
