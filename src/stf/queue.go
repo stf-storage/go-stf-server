@@ -42,7 +42,7 @@ func (self *QueueApi) Enqueue (queueName string, data string) error {
   max := ctx.NumQueueDB()
   done  := false
 
-  sql   := fmt.Sprintf("INSERT INTO %s (arg, created_at) VALUES (?, UNIX_TIMESTAMP())", queueName)
+  sql   := fmt.Sprintf("INSERT INTO %s (args, created_at) VALUES (?, UNIX_TIMESTAMP())", queueName)
 
   for i := 0; i < ctx.NumQueueDB(); i++ {
     qidx := self.currentQueue
@@ -76,7 +76,7 @@ func (self *QueueApi) Dequeue (queueName string, timeout int) (*WorkerArg, error
   ctx := self.Ctx()
   max := ctx.NumQueueDB()
 
-  sql := fmt.Sprintf("SELECT arg, created_at FROM %s WHERE queue_wait('%s', ?)", queueName)
+  sql := fmt.Sprintf("SELECT args, created_at FROM %s WHERE queue_wait('%s', ?)", queueName)
 
   // try all queues
   for i := 0; i < max; i++ {
