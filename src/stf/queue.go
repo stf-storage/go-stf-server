@@ -22,21 +22,40 @@ type QueueApi struct {
 }
 
 func NewQueueApi(ctx ContextForQueueApi) (*QueueApi) {
-  return &QueueApi { 0, ctx }
+  // Find the number of queues, get a random queueIdx
+  max := ctx.NumQueueDB()
+  var qidx int
+  if max < 2 {
+    // micro optimization
+    qidx = max
+  } else {
+    qidx := rand.Intn(max
+  }
+
+  return &QueueApi { qidx, ctx }
 }
 
 func (self *QueueApi) Ctx() ContextForQueueApi {
   return self.ctx
 }
 
-func (self *QueueApi) Insert (queueName string, data string) error {
+func (self *QueueApi) Enqueue (queueName string, data string) error {
   // XXX QueueDB does not have an associated transaction??
   // This breaks design simmetry. Should we fix it?
   ctx   := self.Ctx()
+  max := ctx.NumQueueDB()
   done  := false
+
   sql   := fmt.Sprintf("INSERT INTO %s (arg, created_at) VALUES (?, UNIX_TIMESTAMP())", queueName)
+
   for i := 0; i < ctx.NumQueueDB(); i++ {
-    db, err := ctx.QueueDB(i)
+    qidx := self.currentQueue
+    self.currentQueue++
+    if self.currentQueue >= max {
+      self.currentQueue = 0
+    }
+
+    db, err := ctx.QueueDB(qidx)
     if err != nil {
       continue
     }
@@ -73,6 +92,7 @@ func (self *QueueApi) Dequeue (queueName string, timeout int) (*WorkerArg, error
 
     db, err := ctx.QueueDB(qidx)
     if err == nil {
+      self.Debugf("Failed to retrieve QueueDB (%d): %s", qidx, err)
       // Ugh, try next one
       continue
     }
@@ -81,6 +101,7 @@ func (self *QueueApi) Dequeue (queueName string, timeout int) (*WorkerArg, error
     row := db.QueryRow(sql, timeout)
     err = row.Scan(&arg.Arg, &arg.CreatedAt)
     if err != nil {
+      self.Debugf("Failed to fetch from queue on QueueDB (%d): %s", qidx, err)
       // Ugn, try next one
       continue
     }

@@ -212,7 +212,7 @@ func (self *ObjectApi) EnqueueRepair(
   )
 
   queueApi := ctx.QueueApi()
-  queueApi.Insert("repair_object", strconv.FormatUint(objectObj.Id, 10))
+  queueApi.Enqueue("repair_object", strconv.FormatUint(objectObj.Id, 10))
 
   // Putting this in memcached via Add() allows us from not sending
   // this object to repair repeatedly

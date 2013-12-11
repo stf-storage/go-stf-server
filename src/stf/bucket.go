@@ -177,7 +177,7 @@ func (self *BucketApi) DeleteObjects(id uint64) error {
       return err
     }
 
-    err = queueApi.Insert("delete_object", strconv.FormatUint(objectId, 10))
+    err = queueApi.Enqueue("delete_object", strconv.FormatUint(objectId, 10))
     if err != nil {
       ctx.Debugf("Failed to insert object ID in delete_object queue: %s", err)
     }

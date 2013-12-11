@@ -323,7 +323,7 @@ func (self *Dispatcher) DeleteObject (ctx *RequestContext, bucketName string, ob
   }
 
   queueApi := ctx.QueueApi()
-  err = queueApi.Insert("delete_object", strconv.FormatUint(objectId, 10))
+  err = queueApi.Enqueue("delete_object", strconv.FormatUint(objectId, 10))
   if err != nil {
     self.Debugf("Failed to send object (%d) to delete_object queue: %s", objectId, err)
     return &HTTPResponse { Code : 500, Message: "Failed to delete object" }
