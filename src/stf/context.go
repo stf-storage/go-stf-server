@@ -6,7 +6,6 @@ import (
   "errors"
   "fmt"
   "io"
-  "log"
   "math/rand"
   "net/http"
   "os"
@@ -14,24 +13,21 @@ import (
   "path/filepath"
   "time"
   "strconv"
-  "strings"
   "code.google.com/p/gcfg"
   _ "github.com/go-sql-driver/mysql"
 )
-
-type DebugLog bool
-
-func (d DebugLog) Printf(format string, args ...interface{}) {
-  if d {
-    log.Printf(format, args...)
-  }
-}
 
 type Context interface {
   Config()      *Config
   MainDB()      (*sql.DB, error)
   QueueDB(int)  (*sql.DB, error)
   DebugLog()    DebugLog
+
+  BucketApi()   *BucketApi
+  EntityApi()   *EntityApi
+  ObjectApi()   *ObjectApi
+  QueueApi()    *QueueApi
+  StorageApi()  *StorageApi
 }
 
 type TxnHolder interface {
@@ -48,7 +44,7 @@ type GlobalContext struct {
   mainDB    *sql.DB
   numQueueDB int
   queueDB   []*sql.DB
-  debugLog  DebugLog
+  debugLog  *DebugLog
   idgen     UUIDGen
 }
 
@@ -59,7 +55,7 @@ type RequestContext struct {
   queueApi          *QueueApi
   storageApi        *StorageApi
   storageClusterApi *StorageClusterApi
-  DebugLog        DebugLog
+  debugLog          *DebugLog
   globalContext   *GlobalContext
   Id              string
   Indent          string
@@ -111,14 +107,24 @@ func BootstrapContext() (*GlobalContext, error) {
   }
 
   ctx.config = cfg
-  ctx.debugLog = DebugLog((*cfg).Global.Debug)
   ctx.numQueueDB = len(cfg.QueueDB)
+
+  if cfg.Global.Debug {
+    ctx.debugLog = NewDebugLog()
+    ctx.debugLog.Prefix = "GLOBAL"
+  }
 
   return ctx, nil
 }
 
+func (self *GlobalContext) DebugLog() *DebugLog {
+  return self.debugLog
+}
+
 func (self *GlobalContext) Debugf (format string, args ...interface {}) {
-  self.debugLog.Printf(format, args...)
+  if dl := self.DebugLog(); dl != nil {
+    self.debugLog.Printf(format, args...)
+  }
 }
 
 func (self *GlobalContext) Home() string { return self.home }
@@ -220,31 +226,32 @@ func (self *GlobalContext) NewRequestContext(w http.ResponseWriter, r *http.Requ
     Indent: "",
   }
 
-  h := sha1.New()
-  io.WriteString(h, fmt.Sprintf("%p", rc))
-  io.WriteString(h, strconv.FormatInt(time.Now().UTC().UnixNano(), 10))
-  rc.Id = (fmt.Sprintf("%x", h.Sum(nil)))[0:8]
+  config := self.Config()
+  if config.Global.Debug {
+    rc.debugLog = NewDebugLog()
+    h := sha1.New()
+    io.WriteString(h, fmt.Sprintf("%p", rc))
+    io.WriteString(h, strconv.FormatInt(time.Now().UTC().UnixNano(), 10))
+    rc.debugLog.Prefix = (fmt.Sprintf("%x", h.Sum(nil)))[0:8]
+  }
   return rc
 }
 
-const INDENT_PATTERN string = "  "
-func (self *RequestContext) LogIndent() func() {
-  self.Indent = INDENT_PATTERN + self.Indent
-  return func () {
-    self.Indent = strings.TrimPrefix(self.Indent, INDENT_PATTERN)
-  }
+func (self *RequestContext) DebugLog() *DebugLog {
+  return self.debugLog
 }
 
 func (self *RequestContext) Debugf(format string, args ...interface {}) {
-  message := fmt.Sprintf(format, args...)
-  self.globalContext.Debugf("%s %s %s", self.Id, self.Indent, message)
+  if dl := self.DebugLog(); dl != nil {
+    dl.Printf(format, args...)
+  }
 }
 
 func (self *RequestContext) LogMark(format string, args ...interface{}) func () {
   marker := fmt.Sprintf(format, args...)
 
   self.Debugf("%s START", marker)
-  iCloser := self.LogIndent()
+  iCloser := self.DebugLog().LogIndent()
   return func () {
     err := recover()
     if err != nil {
