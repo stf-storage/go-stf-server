@@ -14,6 +14,7 @@ type WorkerArg struct {
 type ContextForQueueApi interface {
   NumQueueDB() int
   QueueDB(int) (*sql.DB, error)
+  Debugf(string, ...interface{})
 }
 
 type QueueApi struct {
