@@ -41,7 +41,7 @@ func (self *QueueApi) Enqueue (queueName string, data string) error {
   // This breaks design simmetry. Should we fix it?
   ctx   := self.Ctx()
 
-  closer = ctx.LogMark("[QueueApi.Enqueue]")
+  closer := ctx.LogMark("[QueueApi.Enqueue]")
   defer closer()
 
   max := ctx.NumQueueDB()
@@ -80,7 +80,7 @@ func (self *QueueApi) Enqueue (queueName string, data string) error {
 func (self *QueueApi) Dequeue (queueName string, timeout int) (*WorkerArg, error) {
   ctx := self.Ctx()
 
-  closer = ctx.LogMark("[QueueApi.Dequeue]")
+  closer := ctx.LogMark("[QueueApi.Dequeue]")
   defer closer()
 
   max := ctx.NumQueueDB()
