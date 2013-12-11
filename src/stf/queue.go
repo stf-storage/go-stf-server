@@ -26,13 +26,7 @@ type QueueApi struct {
 func NewQueueApi(ctx ContextForQueueApi) (*QueueApi) {
   // Find the number of queues, get a random queueIdx
   max := ctx.NumQueueDB()
-  var qidx int
-  if max < 2 {
-    // micro optimization
-    qidx = max
-  } else {
-    qidx = rand.Intn(max)
-  }
+  qidx := rand.Intn(max)
 
   return &QueueApi { qidx, ctx }
 }
@@ -93,7 +87,7 @@ func (self *QueueApi) Dequeue (queueName string, timeout int) (*WorkerArg, error
     }
 
     db, err := ctx.QueueDB(qidx)
-    if err == nil {
+    if err != nil {
       ctx.Debugf("Failed to retrieve QueueDB (%d): %s", qidx, err)
       // Ugh, try next one
       continue
