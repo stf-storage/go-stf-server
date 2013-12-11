@@ -119,8 +119,7 @@ func (self *QueueApi) Dequeue (queueName string, timeout int) (*WorkerArg, error
     return &arg, nil
   }
 
-
-  err = errors.New("Could not dequeue anything")
+  err := errors.New("Could not dequeue anything")
   self.Debugf("%s", err)
   // if we got here, we were not able to dequeue anything
   return nil, err
