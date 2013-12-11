@@ -17,7 +17,7 @@ type StorageApi struct {
   *BaseApi
 }
 
-func NewStorageApi (ctx *RequestContext) *StorageApi {
+func NewStorageApi (ctx ContextWithApi) *StorageApi {
   return &StorageApi { &BaseApi { ctx } }
 }
 

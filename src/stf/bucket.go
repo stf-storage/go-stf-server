@@ -14,7 +14,7 @@ type BucketApi struct {
   *BaseApi
 }
 
-func NewBucketApi(ctx *RequestContext) (*BucketApi) {
+func NewBucketApi(ctx ContextWithApi) (*BucketApi) {
   return &BucketApi { &BaseApi { ctx } }
 }
 

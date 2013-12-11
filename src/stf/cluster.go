@@ -21,7 +21,7 @@ type StorageClusterApi struct {
   *BaseApi
 }
 
-func NewStorageClusterApi (ctx *RequestContext) *StorageClusterApi {
+func NewStorageClusterApi (ctx ContextWithApi) *StorageClusterApi {
   return &StorageClusterApi { &BaseApi { ctx } }
 }
 

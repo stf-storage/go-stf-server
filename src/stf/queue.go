@@ -15,7 +15,7 @@ type QueueApi struct {
   *BaseApi
 }
 
-func NewQueueApi(ctx *RequestContext) (*QueueApi) {
+func NewQueueApi(ctx ContextWithApi) (*QueueApi) {
   return &QueueApi { 0, &BaseApi { ctx } }
 }
 

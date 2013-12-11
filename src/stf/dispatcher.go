@@ -224,8 +224,15 @@ func (self *Dispatcher) CreateBucket(ctx *RequestContext, bucketName string, obj
 }
 
 func (self *Dispatcher) FetchObject(ctx *RequestContext, bucketName string, objectName string) *HTTPResponse {
-  ctx.TxnBegin()
-  defer ctx.TxnRollback()
+  lmc := ctx.LogMark("[Dispatcher.FetchObject]")
+  defer lmc()
+
+  rbc, err := ctx.TxnBegin()
+  if err != nil {
+    self.Debugf("%s", err)
+    return HTTPInternalServerError
+  }
+  defer rbc()
 
   bucketApi := ctx.BucketApi()
   bucketId, err := bucketApi.LookupIdByName(bucketName)

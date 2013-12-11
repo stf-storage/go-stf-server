@@ -27,7 +27,7 @@ type ObjectApi struct {
 
 var ErrContentNotModified error = errors.New("Request Content Not Modified")
 
-func NewObjectApi (ctx *RequestContext) *ObjectApi {
+func NewObjectApi (ctx ContextWithApi) *ObjectApi {
   return &ObjectApi { &BaseApi { ctx } }
 }
 
@@ -184,11 +184,12 @@ SELECT s.id, s.uri, s.mode
   return list, nil
 }
 
-func EnqueueRepair(
-  ctx *RequestContext,
+func (self *ObjectApi) EnqueueRepair(
   bucketObj *Bucket,
   objectObj *Object,
 ) {
+  ctx := self.Ctx()
+
   go func () {
     // This operation does not have to complete succesfully, so
     // so we use defer() here to eat any panic conditions that we
@@ -239,7 +240,7 @@ func (self *ObjectApi) GetAnyValidEntityUrl (
   // reach in this enqueuing block
   if doHealthCheck {
     defer func() {
-      go EnqueueRepair(ctx, bucketObj, objectObj)
+      go self.EnqueueRepair(bucketObj, objectObj)
     }()
   }
 
@@ -278,7 +279,7 @@ func (self *ObjectApi) GetAnyValidEntityUrl (
       if ! doHealthCheck {
         doHealthCheck = true
         defer func() {
-          go EnqueueRepair(ctx, bucketObj, objectObj)
+          go self.EnqueueRepair(bucketObj, objectObj)
         }()
       }
       // nothing more to do, try our next candidate

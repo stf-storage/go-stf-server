@@ -11,7 +11,7 @@ type StfObject struct {
 }
 
 type Api interface {
-  Ctx() (*RequestContext)
+  Ctx() Context
 
   Create(args ...interface{}) (error)
 
@@ -26,7 +26,7 @@ type Api interface {
 }
 
 type BaseApi struct {
-  ctx *RequestContext
+  ctx ContextWithApi
 }
 
-func (self *BaseApi) Ctx() (*RequestContext) { return self.ctx }
+func (self *BaseApi) Ctx() ContextWithApi { return self.ctx }

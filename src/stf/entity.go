@@ -18,7 +18,7 @@ type EntityApi struct {
   *BaseApi
 }
 
-func NewEntityApi (ctx *RequestContext) *EntityApi {
+func NewEntityApi (ctx ContextWithApi) *EntityApi {
   return &EntityApi { &BaseApi { ctx } }
 }
 

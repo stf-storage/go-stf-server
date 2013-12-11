@@ -11,58 +11,111 @@ import (
   "os"
   "path"
   "path/filepath"
-  "time"
   "strconv"
+  "time"
   "code.google.com/p/gcfg"
   _ "github.com/go-sql-driver/mysql"
 )
 
-type Context interface {
-  Config()      *Config
-  MainDB()      (*sql.DB, error)
-  QueueDB(int)  (*sql.DB, error)
-  DebugLog()    DebugLog
-
+type ApiHolder interface {
   BucketApi()   *BucketApi
   EntityApi()   *EntityApi
   ObjectApi()   *ObjectApi
   QueueApi()    *QueueApi
   StorageApi()  *StorageApi
+  StorageClusterApi() *StorageClusterApi
 }
 
-type TxnHolder interface {
+type Context interface {
+  Config()      *Config
+  MainDB()      (*sql.DB, error)
+  QueueDB(int)  (*sql.DB, error)
+  NumQueueDB()  int
+
+  Cache()       (*MemdClient)
+
   Txn()         (*sql.Tx, error)
-  TxnBegin()    (*sql.Tx, error)
+  TxnBegin()    (func(), error)
   TxnCommit()   error
   TxnRollback() error
+  SetTxn(*sql.Tx)
+  SetTxnCommited(bool)
+
+  DebugLog()    *DebugLog
+  Debugf(string, ...interface{})
+  LogMark(string, ...interface{}) func()
+}
+
+type ContextWithApi interface {
+  Context
+  ApiHolder
+}
+
+type BaseContext struct {
+  DebugLogPtr     *DebugLog
+  NumQueueDBCount int
+  TxnPtr          *sql.Tx
+  TxnCommited     bool
 }
 
 type GlobalContext struct {
-  config    *Config
+  BaseContext
+  ConfigPtr *Config
   home      string
   cache     *MemdClient
   mainDB    *sql.DB
-  numQueueDB int
   queueDB   []*sql.DB
-  debugLog  *DebugLog
-  idgen     UUIDGen
+  IdgenPtr      *UUIDGen
+}
+
+type LocalContext struct {
+  BaseContext
+  BucketApiPtr         *BucketApi
+  EntityApiPtr         *EntityApi
+  ObjectApiPtr         *ObjectApi
+  QueueApiPtr          *QueueApi
+  StorageApiPtr        *StorageApi
+  StorageClusterApiPtr *StorageClusterApi
+  GlobalContextPtr     Context
 }
 
 type RequestContext struct {
-  bucketApi         *BucketApi
-  entityApi         *EntityApi
-  objectApi         *ObjectApi
-  queueApi          *QueueApi
-  storageApi        *StorageApi
-  storageClusterApi *StorageClusterApi
-  debugLog          *DebugLog
-  globalContext   *GlobalContext
-  Id              string
-  Indent          string
+  *LocalContext
   Request         *http.Request
   ResponseWriter  http.ResponseWriter
-  txn             *sql.Tx
-  txnCommited     bool
+}
+
+// BaseContext
+func (self *BaseContext) NumQueueDB() int {
+  return self.NumQueueDBCount
+}
+
+func (self *BaseContext) DebugLog() *DebugLog {
+  return self.DebugLogPtr
+}
+
+func (self *BaseContext) Debugf(format string, args ...interface {}) {
+  if dl := self.DebugLog(); dl != nil {
+    dl.Printf(format, args...)
+  }
+}
+
+func (self *BaseContext) LogMark(format string, args ...interface{}) func () {
+  marker := fmt.Sprintf(format, args...)
+
+  self.Debugf("%s START", marker)
+  closer := self.DebugLog().LogIndent()
+  return func () {
+    err := recover()
+    if err != nil {
+      self.Debugf("Encoundered panic during '%s': %s", marker, err)
+    }
+    closer()
+    self.Debugf("%s END", marker)
+    if err != nil {
+      panic(err)
+    }
+  }
 }
 
 func (ctx *GlobalContext) NewConfig () (*Config, error) {
@@ -106,29 +159,29 @@ func BootstrapContext() (*GlobalContext, error) {
     return nil, err
   }
 
-  ctx.config = cfg
-  ctx.numQueueDB = len(cfg.QueueDB)
+  ctx.ConfigPtr = cfg
+  ctx.NumQueueDBCount = len(cfg.QueueDB)
 
   if cfg.Global.Debug {
-    ctx.debugLog = NewDebugLog()
-    ctx.debugLog.Prefix = "GLOBAL"
+    ctx.DebugLogPtr = NewDebugLog()
+    ctx.DebugLogPtr.Prefix = "GLOBAL"
   }
 
   return ctx, nil
 }
 
 func (self *GlobalContext) DebugLog() *DebugLog {
-  return self.debugLog
+  return self.DebugLogPtr
 }
 
 func (self *GlobalContext) Debugf (format string, args ...interface {}) {
   if dl := self.DebugLog(); dl != nil {
-    self.debugLog.Printf(format, args...)
+    self.DebugLogPtr.Printf(format, args...)
   }
 }
 
 func (self *GlobalContext) Home() string { return self.home }
-func (self *GlobalContext) Config() *Config { return self.config }
+func (self *GlobalContext) Config() *Config { return self.ConfigPtr }
 
 func (self *GlobalContext) connectDB (config DatabaseConfig) (*sql.DB, error) {
   if config.Dbtype == "" {
@@ -198,16 +251,20 @@ func (self *GlobalContext) QueueDB(i int) (*sql.DB, error) {
   return self.queueDB[i], nil
 }
 
+func (self *RequestContext) MainDB() (*sql.DB, error) {
+  return self.GlobalContext().MainDB()
+}
+
 func (self *RequestContext) QueueDB(i int) (*sql.DB, error) {
-  return self.globalContext.QueueDB(i)
+  return self.GlobalContext().QueueDB(i)
 }
 
 func (self *RequestContext) NumQueueDB() int {
-  return self.globalContext.numQueueDB
+  return self.GlobalContext().NumQueueDB()
 }
 
 func (self *GlobalContext) IdGenerator() *UUIDGen {
-  return &self.idgen
+  return self.IdgenPtr
 }
 
 func (self *GlobalContext) Cache() *MemdClient {
@@ -220,141 +277,131 @@ func (self *GlobalContext) Cache() *MemdClient {
 
 func (self *GlobalContext) NewRequestContext(w http.ResponseWriter, r *http.Request) *RequestContext {
   rc := &RequestContext {
-    globalContext: self,
-    Request: r,
-    ResponseWriter: w,
-    Indent: "",
+    &LocalContext { GlobalContextPtr: self },
+    r,
+    w,
   }
 
   config := self.Config()
   if config.Global.Debug {
-    rc.debugLog = NewDebugLog()
+    rc.DebugLogPtr = NewDebugLog()
     h := sha1.New()
     io.WriteString(h, fmt.Sprintf("%p", rc))
     io.WriteString(h, strconv.FormatInt(time.Now().UTC().UnixNano(), 10))
-    rc.debugLog.Prefix = (fmt.Sprintf("%x", h.Sum(nil)))[0:8]
+    rc.DebugLogPtr.Prefix = (fmt.Sprintf("%x", h.Sum(nil)))[0:8]
   }
   return rc
 }
 
-func (self *RequestContext) DebugLog() *DebugLog {
-  return self.debugLog
+func (self *RequestContext) GlobalContext() Context {
+  return self.GlobalContextPtr
 }
 
-func (self *RequestContext) Debugf(format string, args ...interface {}) {
-  if dl := self.DebugLog(); dl != nil {
-    dl.Printf(format, args...)
-  }
-}
-
-func (self *RequestContext) LogMark(format string, args ...interface{}) func () {
-  marker := fmt.Sprintf(format, args...)
-
-  self.Debugf("%s START", marker)
-  iCloser := self.DebugLog().LogIndent()
-  return func () {
-    err := recover()
-    if err != nil {
-      self.Debugf("Encoundered panic during '%s': %s", marker, err)
-    }
-    iCloser()
-    self.Debugf("%s END", marker)
-    if err != nil {
-      panic(err)
-    }
-  }
+func (self *RequestContext) Config() *Config {
+  return self.GlobalContext().Config()
 }
 
 func (self *RequestContext) Cache() *MemdClient {
-  return self.globalContext.Cache()
+  return self.GlobalContext().Cache()
 }
 
 func (self *RequestContext) IdGenerator() *UUIDGen {
-  return self.globalContext.IdGenerator()
+  return self.GlobalContext().(*GlobalContext).IdGenerator()
 }
 
 func (self *RequestContext) BucketApi() *BucketApi {
-  if self.bucketApi == nil {
-    self.bucketApi = NewBucketApi(self)
+  if self.BucketApiPtr == nil {
+    self.BucketApiPtr = NewBucketApi(self)
   }
-  return self.bucketApi
+  return self.BucketApiPtr
 }
 
 func (self *RequestContext) EntityApi() *EntityApi {
-  if self.entityApi == nil {
-    self.entityApi = NewEntityApi(self)
+  if self.EntityApiPtr == nil {
+    self.EntityApiPtr = NewEntityApi(self)
   }
-  return self.entityApi
+  return self.EntityApiPtr
 }
 
 func (self *RequestContext) ObjectApi() *ObjectApi {
-  if self.objectApi == nil {
-    self.objectApi = NewObjectApi(self)
+  if self.ObjectApiPtr == nil {
+    self.ObjectApiPtr = NewObjectApi(self)
   }
-  return self.objectApi
+  return self.ObjectApiPtr
 }
 
 func (self *RequestContext) QueueApi() *QueueApi {
-  if self.queueApi == nil {
-    self.queueApi = NewQueueApi(self)
+  if self.QueueApiPtr == nil {
+    self.QueueApiPtr = NewQueueApi(self)
   }
-  return self.queueApi
+  return self.QueueApiPtr
 }
 
 func (self *RequestContext) StorageApi() *StorageApi {
-  if self.storageApi == nil {
-    self.storageApi = NewStorageApi(self)
+  if self.StorageApiPtr == nil {
+    self.StorageApiPtr = NewStorageApi(self)
   }
-  return self.storageApi
+  return self.StorageApiPtr
 }
 
 func (self *RequestContext) StorageClusterApi() *StorageClusterApi {
-  if self.storageClusterApi == nil {
-    self.storageClusterApi = NewStorageClusterApi(self)
+  if self.StorageClusterApiPtr == nil {
+    self.StorageClusterApiPtr = NewStorageClusterApi(self)
   }
-  return self.storageClusterApi
+  return self.StorageClusterApiPtr
 }
 
-func (self *RequestContext) Txn() (*sql.Tx, error) {
-  if self.txn == nil {
-    _, err := self.TxnBegin()
-    if err != nil {
-      return nil, errors.New(
-        fmt.Sprintf(
-          "Failed to begin transaction: %s",
-          err,
-        ),
-      )
-    }
-  }
-  return self.txn, nil
+func (self *GlobalContext) TxnBegin () (func(), error) {
+  return TxnBeginWith(self)
 }
 
-func (self *RequestContext) TxnBegin() (*sql.Tx, error) {
-  // What, there's an existing transaction?!
-  if self.txn != nil {
-    return nil, errors.New("There's already a transaction being processed")
-  }
+func (self *RequestContext) TxnBegin() (func(), error) {
+  return TxnBeginWith(self)
+}
 
-  self.Debugf("Starting new transaction")
-  db, err := self.globalContext.MainDB()
+var ErrNoTxnInProgress = errors.New("No transaction in progress")
+func (self *BaseContext) Txn() (*sql.Tx, error) {
+  if self.TxnPtr == nil {
+    return nil, ErrNoTxnInProgress
+  }
+  return self.TxnPtr, nil
+}
+
+func (self *BaseContext) SetTxn(tx *sql.Tx) {
+  self.TxnPtr = tx
+}
+
+func (self *BaseContext) SetTxnCommited(x bool) {
+  self.TxnCommited = x
+}
+
+var ErrTxnAlreadyStarted = errors.New("There's already a transaction being processed")
+func TxnBeginWith(ctx Context) (func(), error) {
+  txn, err := ctx.Txn()
+  if err == nil {
+    return nil, ErrTxnAlreadyStarted
+  }
+  ctx.Debugf("Starting new transaction")
+
+  db, err := ctx.MainDB()
   if err != nil {
     return nil, err
   }
-  txn, err := db.Begin()
 
+  txn, err = db.Begin()
   if err != nil {
-    self.Debugf("Failed to start transaction: %s", err)
+    ctx.Debugf("Failed to start transaction: %s", err)
     return nil, err
   }
 
-  self.txn = txn
-  self.txnCommited = false
-  return txn, nil
+  ctx.SetTxn(txn)
+  ctx.SetTxnCommited(false)
+
+  return func () { ctx.TxnRollback() }, nil
 }
 
-func (self *RequestContext) TxnCommit() error {
-  txn := self.txn
+func (self *BaseContext) TxnCommit() error {
+  txn := self.TxnPtr
   if txn != nil {
     self.Debugf("Committing transaction")
     err := txn.Commit()
@@ -363,19 +410,19 @@ func (self *RequestContext) TxnCommit() error {
     }
 
     self.Debugf("Transaction commited")
-    self.txnCommited = true
-    self.txn = nil
+    self.SetTxnCommited(true)
+    self.SetTxn(nil)
   }
   return nil
 }
 
-func (self *RequestContext) TxnRollback() error {
-  txn := self.txn
+func (self *BaseContext) TxnRollback() error {
+  txn := self.TxnPtr
   if txn == nil {
     return nil
   }
 
-  if self.txnCommited {
+  if self.TxnCommited {
     return nil
   }
 
@@ -389,7 +436,7 @@ func (self *RequestContext) TxnRollback() error {
 }
 
 func (self *GlobalContext) Destroy() {
-  self.config     = nil
+  self.ConfigPtr = nil
 }
 
 func (self *RequestContext) Destroy() {
