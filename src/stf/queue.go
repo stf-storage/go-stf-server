@@ -4,6 +4,7 @@ import (
   "database/sql"
   "errors"
   "fmt"
+  "math/rand"
 )
 
 type WorkerArg struct {
