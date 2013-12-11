@@ -92,7 +92,7 @@ func (self *QueueApi) Dequeue (queueName string, timeout int) (*WorkerArg, error
 
     db, err := ctx.QueueDB(qidx)
     if err == nil {
-      self.Debugf("Failed to retrieve QueueDB (%d): %s", qidx, err)
+      ctx.Debugf("Failed to retrieve QueueDB (%d): %s", qidx, err)
       // Ugh, try next one
       continue
     }
@@ -101,7 +101,7 @@ func (self *QueueApi) Dequeue (queueName string, timeout int) (*WorkerArg, error
     row := db.QueryRow(sql, timeout)
     err = row.Scan(&arg.Arg, &arg.CreatedAt)
     if err != nil {
-      self.Debugf("Failed to fetch from queue on QueueDB (%d): %s", qidx, err)
+      ctx.Debugf("Failed to fetch from queue on QueueDB (%d): %s", qidx, err)
       // Ugn, try next one
       continue
     }
