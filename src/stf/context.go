@@ -1,6 +1,7 @@
 package stf
 
 import (
+"log"
   "crypto/sha1"
   "database/sql"
   "errors"
@@ -60,12 +61,12 @@ type BaseContext struct {
 
 type GlobalContext struct {
   BaseContext
+  HomeStr   string
   ConfigPtr *Config
-  home      string
   cache     *MemdClient
   mainDB    *sql.DB
   queueDB   []*sql.DB
-  IdgenPtr      *UUIDGen
+  IdgenPtr  *UUIDGen
 }
 
 type LocalContext struct {
@@ -86,13 +87,8 @@ type RequestContext struct {
 }
 
 // BaseContext
-func (self *BaseContext) NumQueueDB() int {
-  return self.NumQueueDBCount
-}
-
-func (self *BaseContext) DebugLog() *DebugLog {
-  return self.DebugLogPtr
-}
+func (self *BaseContext) NumQueueDB() int       { return self.NumQueueDBCount }
+func (self *BaseContext) DebugLog()   *DebugLog { return self.DebugLogPtr }
 
 func (self *BaseContext) Debugf(format string, args ...interface {}) {
   if dl := self.DebugLog(); dl != nil {
@@ -118,9 +114,9 @@ func (self *BaseContext) LogMark(format string, args ...interface{}) func () {
   }
 }
 
-func (ctx *GlobalContext) NewConfig () (*Config, error) {
+func (self *GlobalContext) Home() string { return self.HomeStr }
+func LoadConfig(ctx *GlobalContext) (*Config, error) {
   cfg   := &Config {}
-
   file  := os.Getenv("STF_CONFIG")
   if file == "" {
     file = path.Join("etc", "config.gcfg")
@@ -133,18 +129,26 @@ func (ctx *GlobalContext) NewConfig () (*Config, error) {
   if err != nil {
     return nil, err
   }
+
+  list := []*DatabaseConfig {}
+  for k, _ := range cfg.QueueDB {
+    list = append(list, cfg.QueueDB[k])
+  }
+  cfg.QueueDBList = list
+
   return cfg, nil
 }
 
 func NewContext() (*GlobalContext, error) {
   rand.Seed(time.Now().UTC().UnixNano())
 
-  ctx := &GlobalContext{}
   home, err := os.Getwd()
   if err != nil {
     return nil, err
   }
-  ctx.home = home
+  ctx := &GlobalContext{
+    HomeStr: home,
+  }
   return ctx, nil
 }
 
@@ -154,13 +158,14 @@ func BootstrapContext() (*GlobalContext, error) {
     return nil, err
   }
 
-  cfg, err  := ctx.NewConfig()
+  cfg, err  := LoadConfig(ctx)
   if err != nil {
     return nil, err
   }
 
   ctx.ConfigPtr = cfg
-  ctx.NumQueueDBCount = len(cfg.QueueDB)
+  ctx.NumQueueDBCount = len(cfg.QueueDBList)
+  ctx.queueDB = make([]*sql.DB, ctx.NumQueueDBCount)
 
   if cfg.Global.Debug {
     ctx.DebugLogPtr = NewDebugLog()
@@ -176,14 +181,13 @@ func (self *GlobalContext) DebugLog() *DebugLog {
 
 func (self *GlobalContext) Debugf (format string, args ...interface {}) {
   if dl := self.DebugLog(); dl != nil {
-    self.DebugLogPtr.Printf(format, args...)
+    dl.Printf(format, args...)
   }
 }
 
-func (self *GlobalContext) Home() string { return self.home }
 func (self *GlobalContext) Config() *Config { return self.ConfigPtr }
 
-func (self *GlobalContext) connectDB (config DatabaseConfig) (*sql.DB, error) {
+func (self *GlobalContext) connectDB (config *DatabaseConfig) (*sql.DB, error) {
   if config.Dbtype == "" {
     config.Dbtype = "mysql"
   }
@@ -229,7 +233,7 @@ func (self *GlobalContext) connectDB (config DatabaseConfig) (*sql.DB, error) {
 
 func (self *GlobalContext) MainDB() (*sql.DB, error) {
   if self.mainDB == nil {
-    db, err := self.connectDB(self.Config().MainDB)
+    db, err := self.connectDB(&self.Config().MainDB)
     if err != nil {
       return nil, err
     }
@@ -241,7 +245,7 @@ func (self *GlobalContext) MainDB() (*sql.DB, error) {
 // Gets the i-th Queue DB
 func (self *GlobalContext) QueueDB(i int) (*sql.DB, error) {
   if self.queueDB[i] == nil {
-    config := self.Config().QueueDB[i]
+    config := self.Config().QueueDBList[i]
     db, err := self.connectDB(config)
     if err != nil {
       return nil, err

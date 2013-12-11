@@ -28,5 +28,6 @@ type Config struct {
   Global      GlobalConfig
   MainDB      DatabaseConfig
   Memcached   MemcachedConfig
-  QueueDB     []DatabaseConfig
+  QueueDB     map[string]*DatabaseConfig
+  QueueDBList []*DatabaseConfig
 }

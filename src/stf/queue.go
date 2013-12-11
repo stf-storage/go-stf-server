@@ -1,6 +1,7 @@
 package stf
 
 import (
+  "database/sql"
   "errors"
   "fmt"
 )
@@ -10,13 +11,22 @@ type WorkerArg struct {
   CreatedAt int
 }
 
-type QueueApi struct {
-  currentQueue int
-  *BaseApi
+type ContextForQueueApi interface {
+  NumQueueDB() int
+  QueueDB(int) (*sql.DB, error)
 }
 
-func NewQueueApi(ctx ContextWithApi) (*QueueApi) {
-  return &QueueApi { 0, &BaseApi { ctx } }
+type QueueApi struct {
+  currentQueue int
+  ctx ContextForQueueApi
+}
+
+func NewQueueApi(ctx ContextForQueueApi) (*QueueApi) {
+  return &QueueApi { 0, ctx }
+}
+
+func (self *QueueApi) Ctx() ContextForQueueApi {
+  return self.ctx
 }
 
 func (self *QueueApi) Insert (queueName string, data string) error {
@@ -57,6 +67,9 @@ func (self *QueueApi) Dequeue (queueName string, timeout int) (*WorkerArg, error
   for i := 0; i < max; i++ {
     qidx := self.currentQueue
     self.currentQueue++
+    if (self.currentQueue >= max) {
+      self.currentQueue = 0
+    }
 
     db, err := ctx.QueueDB(qidx)
     if err == nil {

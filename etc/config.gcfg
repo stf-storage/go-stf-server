@@ -8,5 +8,11 @@ Listen   = :8080
 [MainDB]
 Username = root
 
+[QueueDB "1"]
+ConnectString = tcp(127.0.0.1:3306)/stf_queue
+
+; [QueueDB "2"]
+; ConnectString = tcp(...)/stf_queue
+
 [Memcached]
 Servers = 127.0.0.1:11211
