@@ -115,7 +115,7 @@ func (self *QueueApi) Dequeue (queueName string, timeout int) (*WorkerArg, error
       continue
     }
 
-    self.Debugf("Fetched next job %+v", arg)
+    ctx.Debugf("Fetched next job %+v", arg)
     return &arg, nil
   }
 
