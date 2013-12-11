@@ -29,7 +29,7 @@ func NewQueueApi(ctx ContextForQueueApi) (*QueueApi) {
     // micro optimization
     qidx = max
   } else {
-    qidx := rand.Intn(max
+    qidx = rand.Intn(max)
   }
 
   return &QueueApi { qidx, ctx }
