@@ -1,7 +1,6 @@
 package stf
 
 import (
-"log"
   "crypto/sha1"
   "database/sql"
   "errors"
@@ -10,6 +9,7 @@ import (
   "math/rand"
   "net/http"
   "os"
+  "os/user"
   "path"
   "path/filepath"
   "strconv"
@@ -206,6 +206,15 @@ func (self *GlobalContext) connectDB (config *DatabaseConfig) (*sql.DB, error) {
     }
   }
 
+  if config.Username == "" {
+    u, err := user.Current()
+    if err == nil {
+      config.Username = u.Username
+    } else {
+      config.Username = "root"
+    }
+  }
+
   if config.Dbname == "" {
     config.Dbname = "stf"
   }
@@ -218,10 +227,9 @@ func (self *GlobalContext) connectDB (config *DatabaseConfig) (*sql.DB, error) {
     config.Dbname,
   )
 
-  self.Debugf("Connecting to dsn %s", dsn)
+  self.Debugf("Connecting to dsn: %s", dsn)
 
   db, err := sql.Open(config.Dbtype, dsn)
-
   if err != nil {
     return nil, errors.New(
       fmt.Sprintf("Failed to connect to database: %s", err),
