@@ -16,6 +16,7 @@ type ContextForQueueApi interface {
   NumQueueDB() int
   QueueDB(int) (*sql.DB, error)
   Debugf(string, ...interface{})
+  LogMark(string, ...interface{})
 }
 
 type QueueApi struct {
@@ -39,6 +40,10 @@ func (self *QueueApi) Enqueue (queueName string, data string) error {
   // XXX QueueDB does not have an associated transaction??
   // This breaks design simmetry. Should we fix it?
   ctx   := self.Ctx()
+
+  closer = ctx.LogMark("[QueueApi.Enqueue]")
+  defer closer()
+
   max := ctx.NumQueueDB()
   done  := false
 
@@ -74,9 +79,13 @@ func (self *QueueApi) Enqueue (queueName string, data string) error {
 
 func (self *QueueApi) Dequeue (queueName string, timeout int) (*WorkerArg, error) {
   ctx := self.Ctx()
+
+  closer = ctx.LogMark("[QueueApi.Dequeue]")
+  defer closer()
+
   max := ctx.NumQueueDB()
 
-  sql := fmt.Sprintf("SELECT args, created_at FROM %s WHERE queue_wait('%s', ?)", queueName)
+  sql := fmt.Sprintf("SELECT args, created_at FROM %s WHERE queue_wait('%s', ?)", queueName, queueName)
 
   // try all queues
   for i := 0; i < max; i++ {
