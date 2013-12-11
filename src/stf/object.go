@@ -37,11 +37,15 @@ func (self *ObjectApi) LookupIdByBucketAndPath(bucketObj *Bucket, path string) (
   closer := ctx.LogMark("[Object.LookupIdByBucketAndPath]")
   defer closer()
 
-  tx := ctx.Txn()
+  tx, err := ctx.Txn()
+  if err != nil {
+    return 0, err
+  }
+
   row := tx.QueryRow("SELECT id FROM object WHERE bucket_id = ? AND name = ?", bucketObj.Id, path )
 
   var id uint64
-  err := row.Scan(&id)
+  err = row.Scan(&id)
   switch {
   case err == sql.ErrNoRows:
     ctx.Debugf("Could not find any object for %s/%s", bucketObj.Name, path)
@@ -58,11 +62,15 @@ func (self *ObjectApi) LookupIdByBucketAndPath(bucketObj *Bucket, path string) (
 func (self *ObjectApi) LookupFromDB(id  uint64) (*Object, error) {
   ctx := self.Ctx()
 
-  tx := ctx.Txn()
+  tx, err := ctx.Txn()
+  if err != nil {
+    return nil, err
+  }
+
   row := tx.QueryRow("SELECT id, bucket_id, name, internal_name, size, status, created_at, updated_at  FROM object WHERE id = ?", id)
 
   var o Object
-  err := row.Scan(
+  err = row.Scan(
     &o.Id,
     &o.BucketId,
     &o.Name,
@@ -138,16 +146,21 @@ func (self *ObjectApi) GetStoragesFor(objectObj *Object) ([]Storage, error) {
     ctx.Debugf("Cache MISS for storages for object %d, loading from database", objectObj.Id)
 
     var storageIds []int64
-    sql :=
-      "SELECT s.id, s.uri, s.mode\n" +
-      "   FROM object o JOIN entity e ON o.id = e.object_id\n" +
-      "                 JOIN storage s ON s.id = e.storage_id\n" +
-      "   WHERE\n" +
-      "     o.id = ? AND\n" +
-      "     o.status = 1 AND\n" +
-      "     e.status = 1 AND\n" +
-      "     s.mode IN (?, ?)"
-    tx := ctx.Txn()
+    sql := `
+SELECT s.id, s.uri, s.mode
+  FROM object o JOIN entity e ON o.id = e.object_id
+                JOIN storage s ON s.id = e.storage_id
+  WHERE o.id     = ? AND
+        o.status = 1 AND
+        e.status = 1 AND
+        s.mode   IN (?, ?)
+`
+
+    tx, err := ctx.Txn()
+    if err != nil {
+      return nil, err
+    }
+
     rows, err := tx.Query(sql, objectObj.Id, STORAGE_MODE_READ_ONLY, STORAGE_MODE_READ_WRITE)
     if err != nil {
       return nil, err
@@ -197,11 +210,8 @@ func EnqueueRepair(
     objectObj.Name,
   )
 
-  QueueInsert(
-    ctx,
-    "repair_object",
-    strconv.FormatUint(objectObj.Id, 10),
-  )
+  queueApi := ctx.QueueApi()
+  queueApi.Insert("repair_object", strconv.FormatUint(objectObj.Id, 10))
 
   // Putting this in memcached via Add() allows us from not sending
   // this object to repair repeatedly
@@ -281,7 +291,11 @@ func (self *ObjectApi) GetAnyValidEntityUrl (
 
 func (self *ObjectApi) MarkForDelete (id uint64) error {
   ctx := self.Ctx()
-  tx := ctx.Txn()
+  tx, err := ctx.Txn()
+  if err != nil {
+    return err
+  }
+
   res, err := tx.Exec("REPLACE INTO deleted_object SELECT * FROM object WHERE id = ?", id)
 
   if err != nil {
@@ -321,8 +335,12 @@ func (self *ObjectApi) MarkForDelete (id uint64) error {
 
 func (self *ObjectApi) Delete (id uint64) error {
   ctx := self.Ctx()
-  tx := ctx.Txn()
-  _, err := tx.Exec("DELETE FROM object WHERE id = ?", id)
+  tx, err := ctx.Txn()
+  if err != nil {
+    return err
+  }
+
+  _, err = tx.Exec("DELETE FROM object WHERE id = ?", id)
   if err != nil {
     return err
   }
@@ -347,8 +365,12 @@ func (self *ObjectApi) Create (
   ctx := self.Ctx()
   closer := ctx.LogMark("[Object.Create]")
   defer closer()
-  tx := ctx.Txn()
-  _, err := tx.Exec("INSERT INTO object (id, bucket_id, name, internal_name, size, created_at) VALUES (?, ?, ?, ?, ?, UNIX_TIMESTAMP())", objectId, bucketId, objectName, internalName, size)
+  tx, err := ctx.Txn()
+  if err != nil {
+    return err
+  }
+
+  _, err = tx.Exec("INSERT INTO object (id, bucket_id, name, internal_name, size, created_at) VALUES (?, ?, ?, ?, ?, UNIX_TIMESTAMP())", objectId, bucketId, objectName, internalName, size)
 
   if err != nil {
     ctx.Debugf("Failed to execute query: %s", err)

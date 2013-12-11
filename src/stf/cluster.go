@@ -47,7 +47,11 @@ func (self *StorageClusterApi) LoadWritable () (ClusterCandidates, error) {
   closer := ctx.LogMark("[Cluster.LoadWritable]")
   defer closer()
 
-  tx := ctx.Txn()
+  tx, err := ctx.Txn()
+  if err != nil {
+    return nil, err
+  }
+
   rows, err := tx.Query("SELECT id, name, mode FROM storage_cluster WHERE mode = ?", STORAGE_CLUSTER_MODE_READ_WRITE)
 
   if err != nil {

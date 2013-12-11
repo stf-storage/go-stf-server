@@ -27,10 +27,13 @@ func (self *BucketApi) LookupIdByName(name string) (uint64, error) {
 
   var id uint64
 
-  tx := ctx.Txn()
-  row := tx.QueryRow("SELECT id FROM bucket WHERE name = ?", name)
+  tx, err := ctx.Txn()
+  if err != nil {
+    return 0, err
+  }
 
-  err := row.Scan(&id)
+  row := tx.QueryRow("SELECT id FROM bucket WHERE name = ?", name)
+  err = row.Scan(&id)
   if err != nil {
     return 0, err
   }
@@ -47,9 +50,13 @@ func (self *BucketApi) LookupFromDB(
   defer closer()
 
   var b Bucket
-  tx  := ctx.Txn()
+  tx, err := ctx.Txn()
+  if err != nil {
+    return nil, err
+  }
+
   row := tx.QueryRow("SELECT id, name FROM bucket WHERE id = ?", id)
-  err := row.Scan(&b.Id, &b.Name)
+  err = row.Scan(&b.Id, &b.Name)
   if err != nil {
     ctx.Debugf("Failed to scan query: %s", err)
     return nil, err
@@ -89,8 +96,12 @@ func (self *BucketApi) Create(id uint64, name string) error {
   closer := ctx.LogMark("[Bucket.Create]")
   defer closer()
 
-  tx := ctx.Txn()
-  _, err := tx.Exec(
+  tx, err := ctx.Txn()
+  if err != nil {
+    return err
+  }
+
+  _, err = tx.Exec(
     "INSERT INTO bucket (id, name, created_at, updated_at) VALUES (?, ?, UNIX_TIMESTAMP(), NOW())",
     id,
     name,
@@ -107,7 +118,10 @@ func (self *BucketApi) Create(id uint64, name string) error {
 
 func (self *BucketApi) MarkForDelete(id uint64) error {
   ctx := self.Ctx()
-  tx := ctx.Txn()
+  tx, err := ctx.Txn()
+  if err != nil {
+    return err
+  }
 
   res, err := tx.Exec("REPLACE INTO deleted_bucket SELECT * FROM bucket WHERE id = ?", id)
 
@@ -143,7 +157,10 @@ func (self *BucketApi) MarkForDelete(id uint64) error {
 
 func (self *BucketApi) DeleteObjects(id uint64) error {
   ctx := self.Ctx()
-  tx := ctx.Txn()
+  tx, err := ctx.Txn()
+  if err != nil {
+    return err
+  }
 
   rows, err := tx.Query("SELECT id FROM object WHERE bucket_id = ?", id)
   if err != nil {
@@ -152,6 +169,7 @@ func (self *BucketApi) DeleteObjects(id uint64) error {
   }
 
   var objectId uint64
+  queueApi := ctx.QueueApi()
   for rows.Next() {
     err = rows.Scan(&objectId)
     if err != nil {
@@ -159,7 +177,7 @@ func (self *BucketApi) DeleteObjects(id uint64) error {
       return err
     }
 
-    err = QueueInsert(ctx, "delete_object", strconv.FormatUint(objectId, 10))
+    err = queueApi.Insert("delete_object", strconv.FormatUint(objectId, 10))
     if err != nil {
       ctx.Debugf("Failed to insert object ID in delete_object queue: %s", err)
     }

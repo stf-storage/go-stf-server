@@ -13,9 +13,9 @@ import (
   "path"
   "path/filepath"
   "time"
-  "code.google.com/p/gcfg"
   "strconv"
   "strings"
+  "code.google.com/p/gcfg"
   _ "github.com/go-sql-driver/mysql"
 )
 
@@ -27,11 +27,26 @@ func (d DebugLog) Printf(format string, args ...interface{}) {
   }
 }
 
+type Context interface {
+  Config()      *Config
+  MainDB()      (*sql.DB, error)
+  QueueDB(int)  (*sql.DB, error)
+  DebugLog()    DebugLog
+}
+
+type TxnHolder interface {
+  Txn()         (*sql.Tx, error)
+  TxnBegin()    (*sql.Tx, error)
+  TxnCommit()   error
+  TxnRollback() error
+}
+
 type GlobalContext struct {
   config    *Config
   home      string
   cache     *MemdClient
   mainDB    *sql.DB
+  numQueueDB int
   queueDB   []*sql.DB
   debugLog  DebugLog
   idgen     UUIDGen
@@ -41,6 +56,7 @@ type RequestContext struct {
   bucketApi         *BucketApi
   entityApi         *EntityApi
   objectApi         *ObjectApi
+  queueApi          *QueueApi
   storageApi        *StorageApi
   storageClusterApi *StorageClusterApi
   DebugLog        DebugLog
@@ -96,6 +112,7 @@ func BootstrapContext() (*GlobalContext, error) {
 
   ctx.config = cfg
   ctx.debugLog = DebugLog((*cfg).Global.Debug)
+  ctx.numQueueDB = len(cfg.QueueDB)
 
   return ctx, nil
 }
@@ -107,7 +124,7 @@ func (self *GlobalContext) Debugf (format string, args ...interface {}) {
 func (self *GlobalContext) Home() string { return self.home }
 func (self *GlobalContext) Config() *Config { return self.config }
 
-func (self *GlobalContext) connectDB (config DatabaseConfig) *sql.DB {
+func (self *GlobalContext) connectDB (config DatabaseConfig) (*sql.DB, error) {
   if config.Dbtype == "" {
     config.Dbtype = "mysql"
   }
@@ -117,10 +134,12 @@ func (self *GlobalContext) connectDB (config DatabaseConfig) *sql.DB {
     case "mysql":
       config.ConnectString = "tcp(127.0.0.1:3306)"
     default:
-      panic(fmt.Sprintf(
-        "No database connect string provided, and can't assign a default value for dbtype '%s'",
-        config.Dbtype,
-      ))
+      return nil, errors.New(
+        fmt.Sprintf(
+          "No database connect string provided, and can't assign a default value for dbtype '%s'",
+          config.Dbtype,
+        ),
+      )
     }
   }
 
@@ -141,26 +160,44 @@ func (self *GlobalContext) connectDB (config DatabaseConfig) *sql.DB {
   db, err := sql.Open(config.Dbtype, dsn)
 
   if err != nil {
-    log.Fatalf("Failed to connect to database: %s", err)
+    return nil, errors.New(
+      fmt.Sprintf("Failed to connect to database: %s", err),
+    )
   }
 
-  return db
+  return db, nil
 }
 
-func (self *GlobalContext) MainDB() *sql.DB {
+func (self *GlobalContext) MainDB() (*sql.DB, error) {
   if self.mainDB == nil {
-    self.mainDB = self.connectDB(self.Config().MainDB)
+    db, err := self.connectDB(self.Config().MainDB)
+    if err != nil {
+      return nil, err
+    }
+    self.mainDB = db
   }
-  return self.mainDB
+  return self.mainDB, nil
 }
 
 // Gets the i-th Queue DB
-func (self *GlobalContext) QueueDB(i int) *sql.DB {
+func (self *GlobalContext) QueueDB(i int) (*sql.DB, error) {
   if self.queueDB[i] == nil {
-    config := *self.Config()
-    self.queueDB[i] = self.connectDB(config.QueueDB[i])
+    config := self.Config().QueueDB[i]
+    db, err := self.connectDB(config)
+    if err != nil {
+      return nil, err
+    }
+    self.queueDB[i] = db
   }
-  return self.queueDB[i]
+  return self.queueDB[i], nil
+}
+
+func (self *RequestContext) QueueDB(i int) (*sql.DB, error) {
+  return self.globalContext.QueueDB(i)
+}
+
+func (self *RequestContext) NumQueueDB() int {
+  return self.globalContext.numQueueDB
 }
 
 func (self *GlobalContext) IdGenerator() *UUIDGen {
@@ -250,6 +287,13 @@ func (self *RequestContext) ObjectApi() *ObjectApi {
   return self.objectApi
 }
 
+func (self *RequestContext) QueueApi() *QueueApi {
+  if self.queueApi == nil {
+    self.queueApi = NewQueueApi(self)
+  }
+  return self.queueApi
+}
+
 func (self *RequestContext) StorageApi() *StorageApi {
   if self.storageApi == nil {
     self.storageApi = NewStorageApi(self)
@@ -264,14 +308,19 @@ func (self *RequestContext) StorageClusterApi() *StorageClusterApi {
   return self.storageClusterApi
 }
 
-func (self *RequestContext) Txn() *sql.Tx {
+func (self *RequestContext) Txn() (*sql.Tx, error) {
   if self.txn == nil {
     _, err := self.TxnBegin()
     if err != nil {
-      log.Fatalf("Failed to begin transaction: %s", err)
+      return nil, errors.New(
+        fmt.Sprintf(
+          "Failed to begin transaction: %s",
+          err,
+        ),
+      )
     }
   }
-  return self.txn
+  return self.txn, nil
 }
 
 func (self *RequestContext) TxnBegin() (*sql.Tx, error) {
@@ -281,7 +330,11 @@ func (self *RequestContext) TxnBegin() (*sql.Tx, error) {
   }
 
   self.Debugf("Starting new transaction")
-  txn, err := self.globalContext.MainDB().Begin()
+  db, err := self.globalContext.MainDB()
+  if err != nil {
+    return nil, err
+  }
+  txn, err := db.Begin()
 
   if err != nil {
     self.Debugf("Failed to start transaction: %s", err)

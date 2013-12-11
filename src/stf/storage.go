@@ -21,19 +21,20 @@ func NewStorageApi (ctx *RequestContext) *StorageApi {
   return &StorageApi { &BaseApi { ctx } }
 }
 
-func (self *StorageApi) LookupFromDB(
-  id uint32,
-  s   *Storage,
-) (error) {
+func (self *StorageApi) LookupFromDB(id uint32) (*Storage, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Storage.LookupFromDB]")
   defer closer()
 
-  tx := ctx.Txn()
+  tx, err := ctx.Txn()
+  if err != nil {
+    return nil, err
+  }
   row := tx.QueryRow("SELECT id, cluster_id, uri, mode, created_at, updated_at FROM storage WHERE id = ?", id)
 
-  err := row.Scan(
+  var s Storage
+  err = row.Scan(
     &s.Id,
     &s.ClusterId,
     &s.Uri,
@@ -44,12 +45,12 @@ func (self *StorageApi) LookupFromDB(
 
   if err != nil {
     ctx.Debugf("Failed to execute query (StorageLookup): %s", err)
-    return err
+    return &s, err
   }
 
   ctx.Debugf("Successfully loaded storage %d from database", id)
 
-  return nil
+  return &s, nil
 }
 
 func (self *StorageApi) Lookup(id uint32) (*Storage, error) {
@@ -69,13 +70,13 @@ func (self *StorageApi) Lookup(id uint32) (*Storage, error) {
 
   ctx.Debugf("Cache MISS for '%s', fetching from database", cacheKey)
 
-  err = self.LookupFromDB(id, &s)
+  sptr, err := self.LookupFromDB(id)
   if err != nil {
     return nil, err
   }
 
-  cache.Set(cacheKey, s, 3600)
-  return &s, nil
+  cache.Set(cacheKey, *sptr, 3600)
+  return sptr, nil
 }
 
 func (self *StorageApi) LookupMulti(ids []uint32) ([]Storage, error) {
@@ -142,7 +143,11 @@ func (self *StorageApi) LoadWritable(clusterId uint64, isRepair bool) ([]*Storag
     strings.Join(placeholders, ", "),
   )
 
-  tx := ctx.Txn()
+  tx, err := ctx.Txn()
+  if err != nil {
+    return nil, err
+  }
+
   rows, err := tx.Query(sql, binds...)
   if err != nil {
     return nil, err

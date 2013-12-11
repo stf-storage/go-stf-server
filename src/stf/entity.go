@@ -30,9 +30,13 @@ func (self *EntityApi) Create (
 
   closer := ctx.LogMark("[Entity.Create]")
   defer closer()
-  tx := ctx.Txn()
-  _, err := tx.Exec("INSERT INTO entity (object_id, storage_id, status, created_at) VALUES (?, ?, 1, UNIX_TIMESTAMP())", objectId, storageId)
 
+  tx, err := ctx.Txn()
+  if err != nil {
+    return err
+  }
+
+  _, err = tx.Exec("INSERT INTO entity (object_id, storage_id, status, created_at) VALUES (?, ?, 1, UNIX_TIMESTAMP())", objectId, storageId)
   if err != nil {
     ctx.Debugf("Failed to execute query: %s", err)
     return err
