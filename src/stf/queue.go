@@ -105,6 +105,10 @@ func (self *QueueApi) Dequeue (queueName string, timeout int) (*WorkerArg, error
     var arg WorkerArg
     row := db.QueryRow(sql, timeout)
     err = row.Scan(&arg.Arg, &arg.CreatedAt)
+
+    // End it! End it!
+    db.Exec("SELECT queue_end()")
+
     if err != nil {
       ctx.Debugf("Failed to fetch from queue on QueueDB (%d): %s", qidx, err)
       // Ugn, try next one
