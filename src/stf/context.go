@@ -7,7 +7,6 @@ import (
   "math/rand"
   "net/http"
   "os"
-  "os/user"
   "path"
   "path/filepath"
   "time"
@@ -22,6 +21,12 @@ type ApiHolder interface {
   QueueApi()    *QueueApi
   StorageApi()  *StorageApi
   StorageClusterApi() *StorageClusterApi
+}
+
+type DebugWriter interface {
+  DebugLog()    *DebugLog
+  Debugf(string, ...interface{})
+  LogMark(string, ...interface{}) func()
 }
 
 type Context interface {
@@ -39,9 +44,7 @@ type Context interface {
   SetTxn(*sql.Tx)
   SetTxnCommited(bool)
 
-  DebugLog()    *DebugLog
-  Debugf(string, ...interface{})
-  LogMark(string, ...interface{}) func()
+  DebugWriter
 }
 
 type ContextWithApi interface {
@@ -58,12 +61,12 @@ type BaseContext struct {
 
 type GlobalContext struct {
   BaseContext
-  HomeStr   string
-  ConfigPtr *Config
-  CachePtr  *MemdClient
-  mainDB    *sql.DB
-  queueDB   []*sql.DB
-  IdgenPtr  *UUIDGen
+  HomeStr         string
+  ConfigPtr       *Config
+  CachePtr        *MemdClient
+  MainDBPtr       *sql.DB
+  QueueDBPtrList  []*sql.DB
+  IdgenPtr        *UUIDGen
 }
 
 type LocalContext struct {
@@ -78,7 +81,7 @@ type LocalContext struct {
 }
 
 type RequestContext struct {
-  *LocalContext
+  LocalContext
   Request         *http.Request
   ResponseWriter  http.ResponseWriter
 }
@@ -162,7 +165,7 @@ func BootstrapContext() (*GlobalContext, error) {
 
   ctx.ConfigPtr = cfg
   ctx.NumQueueDBCount = len(cfg.QueueDBList)
-  ctx.queueDB = make([]*sql.DB, ctx.NumQueueDBCount)
+  ctx.QueueDBPtrList = make([]*sql.DB, ctx.NumQueueDBCount)
 
   if cfg.Global.Debug {
     ctx.DebugLogPtr = NewDebugLog()
@@ -184,80 +187,28 @@ func (self *GlobalContext) Debugf (format string, args ...interface {}) {
 
 func (self *GlobalContext) Config() *Config { return self.ConfigPtr }
 
-func (self *GlobalContext) connectDB (config *DatabaseConfig) (*sql.DB, error) {
-  if config.Dbtype == "" {
-    config.Dbtype = "mysql"
-  }
-
-  if config.ConnectString == "" {
-    switch config.Dbtype {
-    case "mysql":
-      config.ConnectString = "tcp(127.0.0.1:3306)"
-    default:
-      return nil, errors.New(
-        fmt.Sprintf(
-          "No database connect string provided, and can't assign a default value for dbtype '%s'",
-          config.Dbtype,
-        ),
-      )
-    }
-  }
-
-  if config.Username == "" {
-    u, err := user.Current()
-    if err == nil {
-      config.Username = u.Username
-    } else {
-      config.Username = "root"
-    }
-  }
-
-  if config.Dbname == "" {
-    config.Dbname = "stf"
-  }
-
-  dsn := fmt.Sprintf(
-    "%s:%s@%s/%s?parseTime=true",
-    config.Username,
-    config.Password,
-    config.ConnectString,
-    config.Dbname,
-  )
-
-  self.Debugf("Connecting to dsn: %s", dsn)
-
-  db, err := sql.Open(config.Dbtype, dsn)
-  if err != nil {
-    return nil, errors.New(
-      fmt.Sprintf("Failed to connect to database: %s", err),
-    )
-  }
-
-  return db, nil
-}
-
 func (self *GlobalContext) MainDB() (*sql.DB, error) {
-  if self.mainDB == nil {
-    db, err := self.connectDB(&self.Config().MainDB)
+  if self.MainDBPtr == nil {
+    db, err := ConnectDB(self, &self.Config().MainDB)
     if err != nil {
       return nil, err
     }
-    self.mainDB = db
+    self.MainDBPtr = db
   }
-  return self.mainDB, nil
+  return self.MainDBPtr, nil
 }
 
 // Gets the i-th Queue DB
 func (self *GlobalContext) QueueDB(i int) (*sql.DB, error) {
-  if self.queueDB[i] == nil {
+  if self.QueueDBPtrList[i] == nil {
     config := self.Config().QueueDBList[i]
-    db, err := self.connectDB(config)
+    db, err := ConnectDB(self, config)
     if err != nil {
       return nil, err
     }
-    self.queueDB[i] = db
+    self.QueueDBPtrList[i] = db
   }
-  return self.queueDB[i], nil
+  return self.QueueDBPtrList[i], nil
 }
 
 func (self *RequestContext) MainDB() (*sql.DB, error) {
@@ -286,7 +237,7 @@ func (self *GlobalContext) Cache() *MemdClient {
 
 func (self *GlobalContext) NewRequestContext(w http.ResponseWriter, r *http.Request) *RequestContext {
   rc := &RequestContext {
-    &LocalContext { GlobalContextPtr: self },
+    LocalContext { GlobalContextPtr: self },
     r,
     w,
   }
