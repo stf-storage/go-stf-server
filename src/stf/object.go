@@ -92,7 +92,7 @@ func (self *ObjectApi) LookupFromDB(id  uint64) (*Object, error) {
 func (self *ObjectApi) Lookup(id uint64) (*Object, error) {
   ctx := self.Ctx()
 
-  closer := ctx.LogMark("[Object.ObjectLookup]")
+  closer := ctx.LogMark("[Object.Lookup]")
   defer closer()
 
   var o Object
