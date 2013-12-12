@@ -79,7 +79,7 @@ func (self *StorageApi) Lookup(id uint64) (*Storage, error) {
   return sptr, nil
 }
 
-func (self *StorageApi) LookupFromRows(sql string, binds []interface {}) ([]*Storage, error) {
+func (self *StorageApi) LookupFromSql(sql string, binds []interface {}) ([]*Storage, error) {
   ctx := self.Ctx()
 
   tx, err := ctx.Txn()
@@ -158,7 +158,7 @@ func (self *StorageApi) LoadInCluster(clusterId uint64) ([]*Storage, error) {
 
   sql := `SELECT id FROM storage WHERE cluster_id = ?`
 
-  list, err := self.LookupFromSql(sql, []interface { clusterId  })
+  list, err := self.LookupFromSql(sql, []interface{} { clusterId })
   if err != nil {
     return nil, err
   }
