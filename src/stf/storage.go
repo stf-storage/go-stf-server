@@ -104,11 +104,11 @@ func (self *StorageApi) LookupMulti(ids []uint64) ([]*Storage, error) {
   misses := 0
   for _, id := range ids {
     key  := cache.CacheKey("storage", strconv.FormatUint(id, 10))
-    st, ok := cached[key].(Storage)
+    st, ok := cached[key].(*Storage)
 
     var s *Storage
     if ok {
-      s = &st
+      s = st
     } else {
       ctx.Debugf("Cache MISS on key '%s'", key)
       misses++
