@@ -256,12 +256,7 @@ func (self *StorageClusterApi) Store(
       return err
     }
 
-    err = entityApi.Store(
-      s,
-      o,
-      input,
-    )
-
+    err = entityApi.Store(s, o, input)
     if err == nil {
       stored++
       if minimumToStore > 0 && stored >= minimumToStore {
@@ -281,6 +276,13 @@ func (self *StorageClusterApi) Store(
       ),
     )
   }
+
+  ctx.Debugf(
+    "Stored %d entities for object %d in cluster %d",
+    stored,
+    o.Id,
+    clusterId,
+  )
   return nil
 }
 
