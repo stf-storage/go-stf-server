@@ -527,6 +527,10 @@ func (self *ObjectApi) Store (
 var ErrNothingToRepair = errors.New("Nothing to repair")
 func (self *ObjectApi) Repair (objectId uint64) error {
   ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Object.Repair]")
+  defer closer()
+
   entityApi := ctx.EntityApi()
   o, err := self.Lookup(objectId)
   if err != nil {
