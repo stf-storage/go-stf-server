@@ -22,6 +22,14 @@ func (self *WorkerContext) QueueApi() *stf.QueueApi {
   return self.QueueApiPtr
 }
 
+func (self *WorkerContext) Cache() *stf.MemdClient {
+  if self.CachePtr == nil {
+    config := self.Config()
+    self.CachePtr = stf.NewMemdClient(config.Memcached.Servers...)
+  }
+  return self.CachePtr
+}
+
 func (self *WorkerContext) NewLoopContext() *WorkerLoopContext {
   rc := &WorkerLoopContext {
     stf.LocalContext{ GlobalContextPtr: self },
@@ -67,7 +75,7 @@ func (self *WorkerLoopContext) LogMark(format string, args ...interface{}) func(
 }
 
 func (self *WorkerLoopContext) Cache() *stf.MemdClient {
-  return nil
+  return self.GlobalContext().Cache()
 }
 
 func (self *WorkerLoopContext) BucketApi() *stf.BucketApi {

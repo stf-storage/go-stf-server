@@ -60,7 +60,7 @@ type GlobalContext struct {
   BaseContext
   HomeStr   string
   ConfigPtr *Config
-  cache     *MemdClient
+  CachePtr  *MemdClient
   mainDB    *sql.DB
   queueDB   []*sql.DB
   IdgenPtr  *UUIDGen
@@ -277,11 +277,11 @@ func (self *GlobalContext) IdGenerator() *UUIDGen {
 }
 
 func (self *GlobalContext) Cache() *MemdClient {
-  if self.cache == nil {
-    config := *self.Config()
-    self.cache = NewMemdClient(config.Memcached.Servers...)
+  if self.CachePtr == nil {
+    config := self.Config()
+    self.CachePtr = NewMemdClient(config.Memcached.Servers...)
   }
-  return self.cache
+  return self.CachePtr
 }
 
 func (self *GlobalContext) NewRequestContext(w http.ResponseWriter, r *http.Request) *RequestContext {
