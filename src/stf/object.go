@@ -5,6 +5,7 @@ import (
   "database/sql"
   "errors"
   "fmt"
+  "io/ioutil"
   "log"
   "net/http"
   "strconv"
@@ -114,7 +115,7 @@ func (self *ObjectApi) Lookup(id uint64) (*Object, error) {
   return optr, nil
 }
 
-func (self *ObjectApi) GetStoragesFor(objectObj *Object) ([]Storage, error) {
+func (self *ObjectApi) GetStoragesFor(objectObj *Object) ([]*Storage, error) {
   ctx := self.Ctx()
   closer := ctx.LogMark("[Object.GetStoragesFor]")
   defer closer()
@@ -128,7 +129,7 @@ func (self *ObjectApi) GetStoragesFor(objectObj *Object) ([]Storage, error) {
     strconv.FormatUint(objectObj.Id, 10),
   )
   var storageIds []uint64
-  var list []Storage
+  var list []*Storage
 
   err := cache.Get(cacheKey, &storageIds)
 
@@ -136,7 +137,7 @@ func (self *ObjectApi) GetStoragesFor(objectObj *Object) ([]Storage, error) {
     // Cache HIT. we need to check for the validity of the storages
     list, err = ctx.StorageApi().LookupMulti(storageIds)
     if err != nil {
-      list = []Storage {}
+      list = []*Storage {}
     } else {
       // Check each
     }
@@ -167,14 +168,14 @@ SELECT s.id, s.uri, s.mode
     }
 
     for rows.Next() {
-      var s Storage
+      s := Storage {}
       err = rows.Scan(
         &s.Id,
         &s.Uri,
         &s.Mode,
       )
       storageIds = append(storageIds, int64(s.Id))
-      list = append(list, s)
+      list = append(list, &s)
     }
     if len(storageIds) > 0 {
       cache.Set(cacheKey, storageIds, 600)
@@ -264,6 +265,7 @@ func (self *ObjectApi) GetAnyValidEntityUrl (
     }
     resp, err := client.Do(request)
     if err != nil {
+      ctx.Debugf("Failed to send request to %s: %s", url, err)
       continue
     }
 
@@ -272,9 +274,11 @@ func (self *ObjectApi) GetAnyValidEntityUrl (
       ctx.Debugf("Request successs, returning URL '%s'", url)
       return url,nil 
     case 304:
-      // This is wierd, but this is how we're gin
+      // This is wierd, but this is how we're going to handle it
+      ctx.Debugf("Request target is not modified, returning 304")
       return "", ErrContentNotModified
     default:
+      ctx.Debugf("Request for %s failed: %s", url, resp.Status)
       // If we failed to fetch the object, send it to repair
       if ! doHealthCheck {
         doHealthCheck = true
@@ -287,7 +291,9 @@ func (self *ObjectApi) GetAnyValidEntityUrl (
   }
 
   // if we fell through here, we're done for
-  return "", nil
+  err = errors.New("Could not find a valid entity in any of the storages")
+  ctx.Debugf("%s", err)
+  return "", err
 }
 
 func (self *ObjectApi) MarkForDelete (id uint64) error {
@@ -551,10 +557,128 @@ func (self *ObjectApi) Repair (objectId uint64) error {
     return ErrNothingToRepair
   }
 
-  masterContext, err := entityApi.FetchContentFromAny(o, true)
+  masterContent, err := entityApi.FetchContentFromAny(o, true)
   if err != nil {
-    return err
+    // One more shot. See if we can recover the content from ANY
+    // of the available storages
+    masterContent, err = entityApi.FetchContentFromAll(o, true)
+    if err != nil {
+      return errors.New(
+        fmt.Sprintf(
+          "PANIC: No content for %d could be fetched!! Cannot proceed with repair.",
+          objectId,
+        ),
+      )
+    }
   }
-  ctx.Debugf("Got %+v", masterContext)
+
+  clusterApi := ctx.StorageClusterApi()
+  clusters, err := clusterApi.LoadCandidatesFor(objectId)
+  if err != nil || len(clusters) < 1 {
+    return errors.New(
+      fmt.Sprintf(
+        "Could not find any storage candidate for object %d",
+        objectId,
+      ),
+    )
+  }
+
+  // Keep this empty until successful completion of the next 
+  // `if err == nil {...} else {...} block. It serves as a marker that
+  // the object is stored in this cluster
+  var designatedCluster *StorageCluster
+
+  // The object SHOULD be stored in the first instance
+  err = clusterApi.CheckEntityHealth(&clusters[0], o, true)
+  needsRepair := err != nil
+
+  if ! needsRepair {
+    // No need to repair. Just make sure object -> cluster mapping
+    // is intact
+    ctx.Debugf(
+      "Object %s is correctly stored in cluster %d. Object does not need repair",
+      objectId,
+      clusters[0].Id,
+    )
+
+    designatedCluster = &clusters[0]
+    currentCluster, _ := clusterApi.LookupForObject(objectId)
+    if currentCluster == nil || designatedCluster.Id != currentCluster.Id {
+      // Ignore errors. No harm done
+      clusterApi.RegisterForObject(designatedCluster.Id, objectId)
+    }
+  } else {
+    // Need to repair
+    ctx.Debugf("Object %d needs repair", objectId)
+
+    // If it got here, either the object was not properly in designatedCluster
+    // (i.e., some/all of the storages in the cluster did not have this
+    // object stored) or it was in a different cluster
+    contentBuf, err := ioutil.ReadAll(masterContent)
+    if err != nil {
+      return errors.New(
+        fmt.Sprintf(
+          "Failed to read from content handle: %s",
+          err,
+        ),
+      )
+    }
+    contentReader := bytes.NewReader(contentBuf)
+    for _, cluster := range clusters {
+      err = clusterApi.Store(
+        cluster.Id,
+        o,
+        contentReader,
+        0, // minimumTosTore
+        true, // isRepair
+        false, // force
+      )
+      if err == nil {
+        designatedCluster = &cluster
+        break
+      }
+    }
+
+    if designatedCluster == nil {
+      return errors.New(
+        fmt.Sprintf(
+          "PANIC: Failed to repair object %d to any cluster!",
+          objectId,
+        ),
+      )
+    }
+  }
+
+  // Object is now properly stored in designatedCluster. Find which storages
+  // map to this cluster, and remove any other entities, if available.
+  // This may happen if we added new clusters and rebalancing ocurred
+  entities, _ := entityApi.LookupForObject(objectId)
+  cache     := ctx.Cache()
+  cacheKey  := cache.CacheKey("storages_for", strconv.FormatUint(objectId, 10))
+
+  cacheInvalidator := func() {
+    ctx.Debugf("Invalidating cache %s", cacheKey)
+    cache.Delete(cacheKey)
+  }
+
+  if needsRepair {
+    defer cacheInvalidator()
+  }
+
+  if entities != nil && len(entities) > 0 {
+    ctx.Debugf("Extra entities found: dropping status flag, then proceeding to remove %d entities", len(entities))
+    for _, e := range entities {
+      entityApi.SetStatus(&e, 0)
+    }
+
+    // Make sure to invalidate the cache here, because we don't want
+    // the dispatcher to pick the entities with status = 0
+    cacheInvalidator()
+
+    for _, e := range entities {
+      entityApi.Remove(&e, true)
+    }
+  }
+
   return nil
 }

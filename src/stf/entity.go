@@ -6,6 +6,7 @@ import (
   "fmt"
   "io"
   "net/http"
+  "strconv"
   "strings"
 )
 
@@ -144,8 +145,61 @@ func (self *EntityApi) FetchContentNocheck (
   return resp.Body, nil
 }
 
+func (self *EntityApi) FetchContentFromStorageIds(o *Object, list []uint64, isRepair bool) (io.ReadCloser, error) {
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Entity.FetchContentFromStorateIds]")
+  defer closer()
+
+  storageApi := ctx.StorageApi()
+  storages, err := storageApi.LookupMulti(list)
+  if err != nil {
+    return nil, err
+  }
+
+  for _, s := range storages {
+    content, err := self.FetchContentNocheck(o, s, isRepair)
+    if err != nil {
+      return content, nil
+    }
+  }
+
+  return nil, errors.New("Failed to fetch any content")
+}
+
+func (self *EntityApi) FetchContentFromAll (o *Object, isRepair bool) (io.ReadCloser, error) {
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Entity.FetchContentFromAll]")
+  defer closer()
+
+  sql := "SELECT s.id FROM storage s ORDER BY rand()"
+  tx, err := ctx.Txn()
+  if err != nil {
+    return nil, err
+  }
+
+  rows, err := tx.Query(sql)
+
+  var list []uint64
+  for rows.Next() {
+    var sid uint64
+    err = rows.Scan(&sid)
+    if err != nil {
+      return nil, err
+    }
+
+    list = append(list, sid)
+  }
+
+  return self.FetchContentFromStorageIds(o, list, isRepair)
+}
+
 func (self *EntityApi) FetchContentFromAny (o *Object, isRepair bool) (io.ReadCloser, error) {
   ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Entity.FetchContentFromAny]")
+  defer closer()
 
   sql := `
 SELECT s.id
@@ -175,16 +229,7 @@ SELECT s.id
     list = append(list, sid)
   }
 
-  storageApi := ctx.StorageApi()
-  storages, err := storageApi.LookupMulti(list)
-  for _, s := range storages {
-    content, err := self.FetchContentNocheck(o, &s, isRepair)
-    if err != nil {
-      return content, nil
-    }
-  }
-
-  return nil, errors.New("Failed to fetch any content")
+  return self.FetchContentFromStorageIds(o, list, isRepair)
 }
 
 func (self *EntityApi) Store(
@@ -302,3 +347,93 @@ func (self *EntityApi) Delete(objectId uint64) error {
   return nil
 }
 
+func (self *EntityApi) CheckHealth(o *Object, s *Storage) error {
+  return nil
+}
+
+func (self *EntityApi) SetStatus(e *Entity, st int) error {
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Entity.SetStatus]")
+  defer closer()
+
+  tx, err := ctx.Txn()
+  if err != nil {
+    return err
+  }
+
+  _, err = tx.Exec(
+    "UPDATE entity SET status = ? WHERE object_id = ? AND storage_id = ?",
+    st,
+    e.ObjectId,
+    e.StorageId,
+  )
+
+  if err != nil {
+    return err
+  }
+
+  return nil
+}
+
+func (self *EntityApi) Remove (e *Entity, isRepair bool) error {
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Entity.Remove]")
+  defer closer()
+
+  cache := ctx.Cache()
+  cacheKey := cache.CacheKey(
+    "storage",
+    strconv.FormatUint(e.StorageId, 10),
+    "http_accessible",
+  )
+  var httpAccesibleFlg int64
+  err := cache.Get(cacheKey, &httpAccesibleFlg)
+  if err == nil && httpAccesibleFlg == -1 {
+    ctx.Debugf(
+      "Storage %d was previously unaccessible, skipping physical delete",
+      e.StorageId,
+    )
+    return errors.New("Storage is inaccessible (negative cache)")
+  }
+
+  storageApi := ctx.StorageApi()
+  s, err := storageApi.Lookup(e.StorageId)
+  if err != nil {
+    return err
+  }
+
+  if ! storageApi.IsWritable(s, isRepair) {
+    ctx.Debugf("Storage %d is not writable (isRepair = %s)", s.Id, isRepair)
+    return errors.New("Storage is not writable")
+  }
+
+  o, err := ctx.ObjectApi().Lookup(e.ObjectId)
+  if err != nil {
+    return err
+  }
+
+  uri := strings.Join([]string { s.Uri, o.InternalName }, "/")
+  req, err := http.NewRequest("DELETE", uri, nil)
+  client := &http.Client {}
+  res, err := client.Do(req)
+  if err != nil {
+    // If you got here, the 'error' is usually error in DNS resolution
+    // or connection refused and such. Remember this incident via a
+    // negative cache, so that we don't keep on
+    cache.Set(cacheKey, -1, 300)
+    return err 
+  }
+
+  switch {
+  case res.StatusCode == 404:
+    ctx.Debugf("%s was not found while deleting (ignored)", uri)
+  case res.StatusCode >= 200 && res.StatusCode < 300:
+    ctx.Debugf("Successfully deleted %s", uri)
+  default:
+    ctx.Debugf("An error occurred while deleting %s: %s", uri, res.Status)
+  }
+
+  return nil
+}

@@ -79,7 +79,7 @@ func (self *StorageApi) Lookup(id uint64) (*Storage, error) {
   return sptr, nil
 }
 
-func (self *StorageApi) LookupMulti(ids []uint64) ([]Storage, error) {
+func (self *StorageApi) LookupMulti(ids []uint64) ([]*Storage, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Storage.LookupMulti]")
@@ -100,21 +100,79 @@ func (self *StorageApi) LookupMulti(ids []uint64) ([]Storage, error) {
     return nil, err
   }
 
-  var ret []Storage
+  var ret []*Storage
   for _, id := range ids {
     key  := cache.CacheKey("storage", strconv.FormatUint(id, 10))
     st, ok := cached[key].(Storage)
 
-    if ! ok {
-      s, err := self.Lookup(id)
+    var s *Storage
+    if ok {
+      s = &st
+    } else {
+      s, err = self.Lookup(id)
       if err != nil {
         return nil, err
       }
-      st = *s
     }
-    ret = append(ret, st)
+    ret = append(ret, s)
   }
   return ret, nil
+}
+
+func (self *StorageApi) LoadInCluster(clusterId uint64) ([]*Storage, error) {
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Storage.LoadInCluster]")
+  defer closer()
+
+  tx, err := ctx.Txn()
+  if err != nil {
+    return nil, err
+  }
+
+  rows, err := tx.Query(`SELECT id FROM storage WHERE cluster_id = ?`, clusterId)
+  if err != nil {
+    return nil, err
+  }
+
+  var ids []uint64
+  for rows.Next() {
+    var sid uint64
+    err = rows.Scan(&sid)
+    if err != nil {
+      return nil, err
+    }
+    ids = append(ids, sid)
+  }
+
+  list, err := self.LookupMulti(ids)
+  if err != nil {
+    return nil, err
+  }
+
+  ctx.Debugf("Loaded %d storages", len(list))
+
+  return list, nil
+}
+
+func (self *StorageApi) WritableModes(isRepair bool) []int {
+  var modes []int
+  if isRepair {
+    modes = WRITABLE_MODES_ON_REPAIR
+  } else {
+    modes = WRITABLE_MODES
+  }
+  return modes
+}
+
+func (self *StorageApi) IsWritable(s *Storage, isRepair bool) bool {
+  modes := self.WritableModes(isRepair)
+  for _, mode := range modes {
+    if s.Mode == mode {
+      return true
+    }
+  }
+  return false
 }
 
 func (self *StorageApi) LoadWritable(clusterId uint64, isRepair bool) ([]*Storage, error) {
@@ -124,12 +182,7 @@ func (self *StorageApi) LoadWritable(clusterId uint64, isRepair bool) ([]*Storag
 
   placeholders := []string {}
   binds := []interface {} { clusterId, }
-  var modes []int
-  if isRepair {
-    modes = WRITABLE_MODES_ON_REPAIR
-  } else {
-    modes = WRITABLE_MODES
-  }
+  modes := self.WritableModes(isRepair)
 
   ctx.Debugf("Repair flag is '%v', using %+v for modes", isRepair, modes)
 
@@ -154,26 +207,19 @@ func (self *StorageApi) LoadWritable(clusterId uint64, isRepair bool) ([]*Storag
   }
 
   var ids []uint64
-  var list []*Storage
-  var id uint64
   for rows.Next() {
-    err = rows.Scan(&id)
+    var sid uint64
+    err = rows.Scan(&sid)
     if err != nil {
       return nil, err
     }
 
-    ids = append(ids, id)
+    ids = append(ids, sid)
   }
 
-  for _, id = range ids {
-    s, err := self.Lookup(id)
-    if err != nil {
-      return nil, err
-    }
-    // WTF s can be nil? well, let's just not append this guy
-    if s != nil {
-      list = append(list, s)
-    }
+  list, err := self.LookupMulti(ids)
+  if err != nil {
+    return nil, err
   }
 
   ctx.Debugf("Loaded %d storages", len(list))

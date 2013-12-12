@@ -11,10 +11,10 @@ import (
 )
 
 type StorageCluster struct {
-  Name string
-  Mode int
-  sortHint uint32
   StfObject
+  Name      string
+  Mode      int
+  sortHint  uint32
 }
 
 type StorageClusterApi struct {
@@ -73,6 +73,76 @@ func (self *StorageClusterApi) LoadWritable () (ClusterCandidates, error) {
   ctx.Debugf("Loaded %d clusters", len(list))
 
   return list, nil
+}
+
+func (self *StorageClusterApi) LookupFromDB(id uint64) (*StorageCluster, error) {
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[StorageCluster.LookupFromDB]")
+  defer closer()
+
+  tx, err := ctx.Txn()
+  if err != nil {
+    return nil, err
+  }
+
+  row := tx.QueryRow("SELECT name, mode FROM storage_cluster WHERE id = ?", id)
+
+  c := StorageCluster { StfObject { Id: id }, "", 0, 0 }
+  err = row.Scan(&c.Name, &c.Mode)
+  if err != nil {
+    ctx.Debugf("Failed to execute query (Lookup): %s", err)
+    return nil, err
+  }
+
+  return &c, nil
+}
+
+func (self *StorageClusterApi) Lookup(id uint64) (*StorageCluster, error) {
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[StorageCluster.Lookup]")
+  defer closer()
+
+  var c StorageCluster
+  cache := ctx.Cache()
+  cacheKey := cache.CacheKey("storage_cluster", strconv.FormatUint(id, 10))
+  err := cache.Get(cacheKey, &c)
+
+  if err == nil {
+    ctx.Debugf("Cache HIT for cluster %d, returning cluster from cache", id)
+    return &c, nil
+  }
+
+  cptr, err := self.LookupFromDB(id)
+  if err != nil {
+    return nil, err
+  }
+
+  ctx.Debugf("Successfully loaded cluster %d from database", id)
+  cache.Set(cacheKey, *cptr, 3600)
+  return cptr, nil
+}
+
+func (self *StorageClusterApi) LookupForObject(objectId uint64) (*StorageCluster, error) {
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[StorageCluster.LookupForObject]")
+  defer closer()
+
+  tx, err := ctx.Txn()
+  if err != nil {
+    return nil, err
+  }
+
+  var cid uint64
+  row := tx.QueryRow("SELECT cluster_id FROM object_cluster_map WHERE object_id = ?", objectId)
+  err = row.Scan(&cid)
+  if err != nil {
+    return nil, err
+  }
+
+  return self.Lookup(cid)
 }
 
 func (self *StorageClusterApi) LoadCandidatesFor(objectId uint64) (ClusterCandidates, error) {
@@ -201,3 +271,55 @@ func (self *StorageClusterApi) Store(
 func (self *StorageClusterApi) RegisterForObject(clusterId uint64, objectId uint64) error {
   return nil
 }
+
+var ErrClusterNotWritable = errors.New("Cluster is not writable")
+var ErrNoStorageAvailable = errors.New("No storages available")
+func (self *StorageClusterApi) CheckEntityHealth(
+  cluster   *StorageCluster,
+  o         *Object,
+  isRepair  bool,
+) error {
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[StorageCluster.CheckEntityHealth]")
+  defer closer()
+
+  ctx.Debugf(
+    "Checking entity health for object %d on cluster %d",
+    o.Id,
+    cluster.Id,
+  )
+
+  // Short circuit. If the cluster mode is not rw or ro, then
+  // we have a problem.
+  if cluster.Mode != STORAGE_CLUSTER_MODE_READ_WRITE && cluster.Mode != STORAGE_CLUSTER_MODE_READ_ONLY {
+    ctx.Debugf(
+      "Cluster %d is not read-write or read-only, need to move object %d out of this cluster",
+      cluster.Id,
+      o.Id,
+    )
+    return ErrClusterNotWritable
+  }
+
+  storageApi := ctx.StorageApi()
+  storages, err := storageApi.LoadInCluster(cluster.Id)
+  if err != nil {
+    return ErrNoStorageAvailable
+  }
+
+  entityApi := ctx.EntityApi()
+  for _, s := range storages {
+    err = entityApi.CheckHealth(o, s)
+    if err != nil {
+      return errors.New(
+        fmt.Sprintf(
+          "Entity for object %d on storage %d is unavailable: %s",
+          o.Id,
+          s.Id,
+          err,
+        ),
+      )
+    }
+  }
+  return nil
+} 
