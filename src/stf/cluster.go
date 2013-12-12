@@ -309,7 +309,7 @@ func (self *StorageClusterApi) CheckEntityHealth(
 
   entityApi := ctx.EntityApi()
   for _, s := range storages {
-    err = entityApi.CheckHealth(o, s)
+    err = entityApi.CheckHealth(o, s, isRepair)
     if err != nil {
       return errors.New(
         fmt.Sprintf(

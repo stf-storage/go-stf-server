@@ -24,6 +24,29 @@ func NewEntityApi (ctx ContextWithApi) *EntityApi {
   return &EntityApi { &BaseApi { ctx } }
 }
 
+func (self *EntityApi) Lookup(objectId uint64, storageId uint64) (*Entity, error) {
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Entity.Lookup]")
+  defer closer()
+
+  tx, err := ctx.Txn()
+
+  row := tx.QueryRow(
+    "SELECT status FROM entity WHERE object_id = ? AND storage_id = ?",
+    objectId,
+    storageId,
+  )
+
+  e := Entity { objectId, storageId, 0 }
+  err = row.Scan(&e.Status)
+  if err != nil {
+    return nil, err
+  }
+
+  return &e, nil
+}
+
 func (self *EntityApi) LookupForObject (objectId uint64) ([]Entity, error) {
   ctx := self.Ctx()
 
@@ -347,7 +370,104 @@ func (self *EntityApi) Delete(objectId uint64) error {
   return nil
 }
 
-func (self *EntityApi) CheckHealth(o *Object, s *Storage) error {
+func (self *EntityApi) CheckHealth(o *Object, s *Storage, isRepair bool) error {
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Entity.CheckHealth]")
+  defer closer()
+
+  _, err := self.Lookup(o.Id, s.Id)
+  if err != nil {
+    ctx.Debugf(
+      "Entity on storage %d for object %d is not recorded.",
+      s.Id,
+      o.Id,
+    )
+    return errors.New(
+      fmt.Sprintf(
+        "Could not find entity in database: %s",
+        err,
+      ),
+    )
+  }
+
+  // An entity in TEMPORARILY_DOWN node needs to be treated as alive
+  if s.Mode == STORAGE_MODE_TEMPORARILY_DOWN {
+    ctx.Debugf(
+      "Storage %d is temporarily down. Assuming this is intact.",
+      s.Id,
+    )
+    return nil
+  }
+
+  // If the mode is not in a readable state, then we've purposely 
+  // taken it out of the system, and needs to be repaired. Also, 
+  // if this were the case, we DO NOT issue an DELETE on the backend, 
+  // as it most likely will not properly respond.
+
+  storageApi := ctx.StorageApi()
+  if ! storageApi.IsReadable(s, isRepair) {
+    ctx.Debugf(
+      "Storage %d is not reable. Adding to invalid list.",
+      s.Id,
+    )
+    return errors.New("Storage is down")
+  }
+
+  url := strings.Join([]string{ s.Uri, o.InternalName }, "/")
+  ctx.Debugf(
+    "Going to check %s (object_id = %d, storage_id = %d)",
+    url,
+    o.Id,
+    s.Id,
+  )
+
+  client := &http.Client {}
+  res, err := client.Get(url)
+
+  var okStr string
+  var st    int
+  if err != nil {
+    okStr = "FAIL"
+    st    = 500
+  } else if res.StatusCode != 200 {
+    okStr = "FAIL"
+    st    = res.StatusCode
+  } else {
+    okStr = "OK"
+    st    = res.StatusCode
+  }
+
+  ctx.Debugf(
+    "GET %s was %s (%d)",
+    url,
+    okStr,
+    st,
+  )
+
+  if err != nil {
+    return errors.New("An error occurred while trying to fetch entity")
+  }
+
+  if res.StatusCode != 200 {
+    return errors.New(
+      fmt.Sprintf(
+        "Failed to fetch entity: %s",
+        res.Status,
+      ),
+    )
+  }
+
+  if res.ContentLength != o.Size {
+    ctx.Debugf(
+      "Object %d sizes do not match (got %d, expected %d)",
+      o.Id,
+      res.ContentLength,
+      o.Size,
+    )
+    return errors.New("Object size mismatch")
+  }
+
   return nil
 }
 

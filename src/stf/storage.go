@@ -155,6 +155,16 @@ func (self *StorageApi) LoadInCluster(clusterId uint64) ([]*Storage, error) {
   return list, nil
 }
 
+func (self *StorageApi) ReadableModes(isRepair bool) []int {
+  var modes []int
+  if isRepair {
+    modes = READABLE_MODES_ON_REPAIR
+  } else {
+    modes = READABLE_MODES
+  }
+  return modes
+}
+
 func (self *StorageApi) WritableModes(isRepair bool) []int {
   var modes []int
   if isRepair {
@@ -165,14 +175,21 @@ func (self *StorageApi) WritableModes(isRepair bool) []int {
   return modes
 }
 
-func (self *StorageApi) IsWritable(s *Storage, isRepair bool) bool {
-  modes := self.WritableModes(isRepair)
+func IsModeIn(s *Storage, modes []int) bool {
   for _, mode := range modes {
     if s.Mode == mode {
       return true
     }
   }
   return false
+}
+
+func (self *StorageApi) IsReadable(s *Storage, isRepair bool) bool {
+  return IsModeIn(s, self.ReadableModes(isRepair))
+}
+
+func (self *StorageApi) IsWritable(s *Storage, isRepair bool) bool {
+  return IsModeIn(s, self.WritableModes(isRepair))
 }
 
 func (self *StorageApi) LoadWritable(clusterId uint64, isRepair bool) ([]*Storage, error) {
