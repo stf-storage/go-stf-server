@@ -102,13 +102,23 @@ func (self *EntityApi) Create (
   return nil
 }
 
-func (self *EntityApi) FetchContent(o *Object, s *Storage, isRepair bool) ([]byte, error) {
+func (self *EntityApi) FetchContent(o *Object, s *Storage, isRepair bool) (io.ReadCloser, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Entity.FetchContent]")
   defer closer()
 
-  return nil, nil
+  storageApi := ctx.StorageApi()
+  if ! storageApi.IsReadable(s, isRepair) {
+    return nil, errors.New(
+      fmt.Sprintf(
+        "Storage %d is not readable",
+        s.Id,
+      ),
+    )
+  }
+
+  return self.FetchContentNocheck(o, s, isRepair)
 }
 
 func (self *EntityApi) FetchContentNocheck (

@@ -6,6 +6,7 @@ import (
   "errors"
   "fmt"
   "io"
+  "io/ioutil"
   "sort"
   "strconv"
 )
@@ -232,24 +233,21 @@ func (self *StorageClusterApi) Store(
     var fetchedMD5 []byte
     fetchOK := false
     if ! force {
-      fetchedContent, err = entityApi.FetchContent(
-        o,
-        s,
-        isRepair,
-      )
-
-      if err != nil {
-        fetchOK = true
+      if fetched, err := entityApi.FetchContent(o, s, isRepair); err == nil {
+        if fetchedContent, err = ioutil.ReadAll(fetched); err == nil {
+          fetchedMD5 = calcMD5(bytes.NewReader(fetchedContent))
+          fetchOK = true
+        }
       }
-
-      fetchedMD5 = calcMD5(bytes.NewReader(fetchedContent))
     }
 
     if fetchOK {
       // Find the MD5 checksum of the fetchedContent, and make sure that
       // this indeed matches what we want to store
-      if ! bytes.Equal(fetchedMD5, expected) {
-        panic("md5 does not match")
+      if bytes.Equal(fetchedMD5, expected) {
+        // It's a match!
+        ctx.Debugf("Entity on storage %d exist, and md5 matches. Assume this is OK")
+        break
       }
     }
 
