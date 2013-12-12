@@ -79,6 +79,32 @@ func (self *StorageApi) Lookup(id uint64) (*Storage, error) {
   return sptr, nil
 }
 
+func (self *StorageApi) LookupFromRows(sql string, binds []interface {}) ([]*Storage, error) {
+  ctx := self.Ctx()
+
+  tx, err := ctx.Txn()
+  if err != nil {
+    return nil, err
+  }
+
+  rows, err := tx.Query(sql, binds...)
+  if err != nil {
+    return nil, err
+  }
+
+  var ids []uint64
+  for rows.Next() {
+    var sid uint64
+    err = rows.Scan(&sid)
+    if err != nil {
+      return nil, err
+    }
+    ids = append(ids, sid)
+  }
+
+  return self.LookupMulti(ids)
+}
+
 func (self *StorageApi) LookupMulti(ids []uint64) ([]*Storage, error) {
   ctx := self.Ctx()
 
@@ -130,33 +156,14 @@ func (self *StorageApi) LoadInCluster(clusterId uint64) ([]*Storage, error) {
   closer := ctx.LogMark("[Storage.LoadInCluster]")
   defer closer()
 
-  tx, err := ctx.Txn()
-  if err != nil {
-    return nil, err
-  }
+  sql := `SELECT id FROM storage WHERE cluster_id = ?`
 
-  rows, err := tx.Query(`SELECT id FROM storage WHERE cluster_id = ?`, clusterId)
-  if err != nil {
-    return nil, err
-  }
-
-  var ids []uint64
-  for rows.Next() {
-    var sid uint64
-    err = rows.Scan(&sid)
-    if err != nil {
-      return nil, err
-    }
-    ids = append(ids, sid)
-  }
-
-  list, err := self.LookupMulti(ids)
+  list, err := self.LookupFromSql(sql, []interface { clusterId  })
   if err != nil {
     return nil, err
   }
 
   ctx.Debugf("Loaded %d storages", len(list))
-
   return list, nil
 }
 
@@ -218,33 +225,11 @@ func (self *StorageApi) LoadWritable(clusterId uint64, isRepair bool) ([]*Storag
     strings.Join(placeholders, ", "),
   )
 
-  tx, err := ctx.Txn()
-  if err != nil {
-    return nil, err
-  }
-
-  rows, err := tx.Query(sql, binds...)
-  if err != nil {
-    return nil, err
-  }
-
-  var ids []uint64
-  for rows.Next() {
-    var sid uint64
-    err = rows.Scan(&sid)
-    if err != nil {
-      return nil, err
-    }
-
-    ids = append(ids, sid)
-  }
-
-  list, err := self.LookupMulti(ids)
+  list, err := self.LookupFromSql(sql, binds)
   if err != nil {
     return nil, err
   }
 
   ctx.Debugf("Loaded %d storages", len(list))
-
   return list, nil
 }
