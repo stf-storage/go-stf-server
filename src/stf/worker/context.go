@@ -87,16 +87,6 @@ func (self *WorkerLoopContext) NumQueueDB() int {
   return 0
 }
 
-func (self *WorkerLoopContext) DebugLog() *stf.DebugLog {
-  return nil
-}
-
-func (self *WorkerLoopContext) Debugf(format string, args ...interface{}) {
-}
-func (self *WorkerLoopContext) LogMark(format string, args ...interface{}) func(){
-  return nil
-}
-
 func (self *WorkerLoopContext) Cache() *stf.MemdClient {
   return self.GlobalContext().Cache()
 }
