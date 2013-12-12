@@ -55,6 +55,8 @@ func (self *EntityApi) LookupForObject (objectId uint64) ([]Entity, error) {
   closer := ctx.LogMark("[Entity.LookupForObject]")
   defer closer()
 
+  ctx.Debugf("Looking for entities for object %d", objectId)
+
   tx, err := ctx.Txn()
 
   rows, err := tx.Query("SELECT storage_id, status WHERE object_id = ?", objectId)
@@ -378,6 +380,8 @@ func (self *EntityApi) CheckHealth(o *Object, s *Storage, isRepair bool) error {
 
   closer := ctx.LogMark("[Entity.CheckHealth]")
   defer closer()
+
+  ctx.Debugf("Checking entity health on object %d storage %d", o.Id, s.Id)
 
   _, err := self.Lookup(o.Id, s.Id)
   if err != nil {

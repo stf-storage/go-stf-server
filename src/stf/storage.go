@@ -199,7 +199,7 @@ func (self *StorageApi) IsWritable(s *Storage, isRepair bool) bool {
 
 func (self *StorageApi) LoadWritable(clusterId uint64, isRepair bool) ([]*Storage, error) {
   ctx := self.Ctx()
-  closer := ctx.LogMark("[Storage.LoadWritableStorages]")
+  closer := ctx.LogMark("[Storage.LoadWritable]")
   defer closer()
 
   placeholders := []string {}

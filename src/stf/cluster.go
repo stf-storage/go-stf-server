@@ -178,7 +178,7 @@ func calcMD5 (input interface { Read([]byte) (int, error) } ) []byte {
 
 func (self *StorageClusterApi) Store(
   clusterId uint64,
-  objectObj *Object,
+  o *Object,
   input *bytes.Reader,
   minimumToStore int,
   isRepair bool,
@@ -196,6 +196,24 @@ func (self *StorageClusterApi) Store(
     return err
   }
 
+  if minimumToStore < 1 {
+    // Give it a default value
+    minimumToStore = 3
+  }
+
+  if len(storages) < minimumToStore {
+    err = errors.New(
+      fmt.Sprintf(
+        "Only loaded %d storages (wanted %d) for cluster %d",
+        len(storages),
+        minimumToStore,
+        clusterId,
+      ),
+    )
+    ctx.Debugf("%s", err)
+    return err
+  }
+
   var expected []byte
   if ! force {
     // Micro-optimize
@@ -205,8 +223,8 @@ func (self *StorageClusterApi) Store(
   entityApi := ctx.EntityApi()
 
   stored := 0
-  for _, storageObj := range storages {
-    ctx.Debugf("Attempting to store to storage %s (id = %d)", storageObj.Uri, storageObj.Id)
+  for _, s := range storages {
+    ctx.Debugf("Attempting to store to storage %s (id = %d)", s.Uri, s.Id)
     // Without the force flag, we fetch the object before storing to
     // avoid redundant writes. force should only be used when you KNOW
     // that this is a new entity
@@ -215,8 +233,8 @@ func (self *StorageClusterApi) Store(
     fetchOK := false
     if ! force {
       fetchedContent, err = entityApi.FetchContent(
-        objectObj,
-        storageObj,
+        o,
+        s,
         isRepair,
       )
 
@@ -241,8 +259,8 @@ func (self *StorageClusterApi) Store(
     }
 
     err = entityApi.Store(
-      storageObj,
-      objectObj,
+      s,
+      o,
       input,
     )
 
@@ -311,6 +329,7 @@ func (self *StorageClusterApi) CheckEntityHealth(
   for _, s := range storages {
     err = entityApi.CheckHealth(o, s, isRepair)
     if err != nil {
+      ctx.Debugf("Health check for entity on object %d storage %d failed", o.Id, s.Id)
       return errors.New(
         fmt.Sprintf(
           "Entity for object %d on storage %d is unavailable: %s",
