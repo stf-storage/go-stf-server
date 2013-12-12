@@ -41,9 +41,11 @@ func (self *EntityApi) Lookup(objectId uint64, storageId uint64) (*Entity, error
   e := Entity { objectId, storageId, 0 }
   err = row.Scan(&e.Status)
   if err != nil {
+    ctx.Debugf("Failed to execute query (Entity.Lookup): %s", err)
     return nil, err
   }
 
+  ctx.Debugf("Successfully loaded entity for object %d storage %D", objectId, storageId)
   return &e, nil
 }
 
@@ -171,7 +173,7 @@ func (self *EntityApi) FetchContentNocheck (
 func (self *EntityApi) FetchContentFromStorageIds(o *Object, list []uint64, isRepair bool) (io.ReadCloser, error) {
   ctx := self.Ctx()
 
-  closer := ctx.LogMark("[Entity.FetchContentFromStorateIds]")
+  closer := ctx.LogMark("[Entity.FetchContentFromStorageIds]")
   defer closer()
 
   storageApi := ctx.StorageApi()
@@ -182,7 +184,7 @@ func (self *EntityApi) FetchContentFromStorageIds(o *Object, list []uint64, isRe
 
   for _, s := range storages {
     content, err := self.FetchContentNocheck(o, s, isRepair)
-    if err != nil {
+    if err == nil {
       return content, nil
     }
   }
