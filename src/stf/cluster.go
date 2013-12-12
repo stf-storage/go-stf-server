@@ -146,7 +146,7 @@ func (self *StorageClusterApi) Store(
     if ! force {
       fetchedContent, err = entityApi.FetchContent(
         objectObj,
-        storageObj.Id,
+        storageObj,
         isRepair,
       )
 

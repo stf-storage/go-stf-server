@@ -30,11 +30,20 @@ func (self *RepairObjectWorker) NextJob() (*stf.WorkerArg, error) {
 }
 
 func (self *RepairObjectWorker) Work(arg *stf.WorkerArg) {
-  ctx := self.Ctx()
+  ctx := self.Ctx() // Note, this is "Global" context
   objectId, err := strconv.ParseUint(arg.Arg, 10, 64)
   if err != nil {
     return
   }
 
-  ctx.Debugf("Processing %d", objectId)
+  // Create a per-loop context
+  loopCtx := ctx.NewLoopContext()
+
+  objectApi := loopCtx.ObjectApi()
+  err = objectApi.Repair(objectId)
+  if err != nil {
+    ctx.Debugf("Failed to repair %d: %s", objectId, err)
+  } else {
+    ctx.Debugf("Repaired object %d", objectId)
+  }
 }

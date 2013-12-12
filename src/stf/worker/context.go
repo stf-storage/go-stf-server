@@ -1,8 +1,9 @@
 package worker
 
 import (
-  "stf"
   "database/sql"
+  "fmt"
+  "stf"
 )
 
 type WorkerContext struct {
@@ -11,7 +12,7 @@ type WorkerContext struct {
 }
 type WorkerLoopContext struct {
   stf.LocalContext
-  GlobalContextPtr *WorkerContext
+//  GlobalContextPtr *WorkerContext
 }
 
 func (self *WorkerContext) QueueApi() *stf.QueueApi {
@@ -19,6 +20,20 @@ func (self *WorkerContext) QueueApi() *stf.QueueApi {
     self.QueueApiPtr = stf.NewQueueApi(self)
   }
   return self.QueueApiPtr
+}
+
+func (self *WorkerContext) NewLoopContext() *WorkerLoopContext {
+  rc := &WorkerLoopContext {
+    stf.LocalContext{ GlobalContextPtr: self },
+  }
+
+  config := self.Config()
+  if config.Global.Debug {
+    rc.DebugLogPtr = stf.NewDebugLog()
+    rc.DebugLogPtr.Prefix = stf.GenerateRandomId(fmt.Sprintf("%p", rc), 8)
+
+  }
+  return rc
 }
 
 func (self *WorkerLoopContext) GlobalContext() stf.Context {
@@ -51,16 +66,29 @@ func (self *WorkerLoopContext) LogMark(format string, args ...interface{}) func(
   return nil
 }
 
-func (self *WorkerLoopContext) BucketApi() *stf.BucketApi {
+func (self *WorkerLoopContext) Cache() *stf.MemdClient {
   return nil
+}
+
+func (self *WorkerLoopContext) BucketApi() *stf.BucketApi {
+  if self.BucketApiPtr == nil {
+    self.BucketApiPtr = stf.NewBucketApi(self)
+  }
+  return self.BucketApiPtr
 }
 
 func (self *WorkerLoopContext) EntityApi() *stf.EntityApi {
-  return nil
+  if self.EntityApiPtr == nil {
+    self.EntityApiPtr = stf.NewEntityApi(self)
+  }
+  return self.EntityApiPtr
 }
 
 func (self *WorkerLoopContext) ObjectApi() *stf.ObjectApi {
-  return nil
+  if self.ObjectApiPtr == nil {
+    self.ObjectApiPtr = stf.NewObjectApi(self)
+  }
+  return self.ObjectApiPtr
 }
 
 func (self *WorkerLoopContext) QueueApi() *stf.QueueApi {
@@ -71,30 +99,62 @@ func (self *WorkerLoopContext) QueueApi() *stf.QueueApi {
 }
 
 func (self *WorkerLoopContext) StorageApi() *stf.StorageApi {
-  return nil
+  if self.StorageApiPtr == nil {
+    self.StorageApiPtr = stf.NewStorageApi(self)
+  }
+  return self.StorageApiPtr
 }
 
 func (self *WorkerLoopContext) StorageClusterApi() *stf.StorageClusterApi {
-  return nil
-}
-
-func (self *WorkerLoopContext) Cache() *stf.MemdClient {
-  return nil
+  if self.StorageClusterApiPtr == nil {
+    self.StorageClusterApiPtr = stf.NewStorageClusterApi(self)
+  }
+  return self.StorageClusterApiPtr
 }
 
 func (self *WorkerLoopContext) Txn() (*sql.Tx, error) {
-  return nil, nil
+  if self.TxnPtr == nil {
+    return nil, stf.ErrNoTxnInProgress
+  }
+  return self.TxnPtr, nil
 }
 
 func (self *WorkerLoopContext) TxnBegin() (func(), error) {
-  return nil, nil
+  return stf.TxnBeginWith(self)
 }
 
 func (self *WorkerLoopContext) TxnCommit() error {
+  txn := self.TxnPtr
+  if txn != nil {
+    self.Debugf("Committing transaction")
+    err := txn.Commit()
+    if err != nil {
+      return err
+    }
+
+    self.Debugf("Transaction commited")
+    self.SetTxnCommited(true)
+    self.SetTxn(nil)
+  }
   return nil
 }
 
 func (self *WorkerLoopContext) TxnRollback() error {
+  txn := self.TxnPtr
+  if txn == nil {
+    return nil
+  }
+
+  if self.TxnCommited {
+    return nil
+  }
+
+  self.Debugf("Rolling back changes")
+  err := txn.Rollback()
+  if err != nil {
+    return err
+  }
+  self.Debugf("Transaction rolled back")
   return nil
 }
 

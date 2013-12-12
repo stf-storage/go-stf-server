@@ -16,7 +16,7 @@ type Object struct {
   BucketId      uint64
   Name          string
   InternalName  string
-  Size          int
+  Size          int64
   Status        int
   StfObject
 }
@@ -127,7 +127,7 @@ func (self *ObjectApi) GetStoragesFor(objectObj *Object) ([]Storage, error) {
     "storages_for",
     strconv.FormatUint(objectObj.Id, 10),
   )
-  var storageIds []uint32
+  var storageIds []uint64
   var list []Storage
 
   err := cache.Get(cacheKey, &storageIds)
@@ -524,3 +524,33 @@ func (self *ObjectApi) Store (
   return err
 }
 
+var ErrNothingToRepair = errors.New("Nothing to repair")
+func (self *ObjectApi) Repair (objectId uint64) error {
+  ctx := self.Ctx()
+  entityApi := ctx.EntityApi()
+  o, err := self.Lookup(objectId)
+  if err != nil {
+    ctx.Debugf("No matching object %d", objectId)
+
+    entities, err := entityApi.LookupForObject(objectId)
+    if err != nil {
+      return ErrNothingToRepair
+    }
+
+    if ctx.DebugLog() != nil {
+      ctx.Debugf("Removing orphaned entities in storages:")
+      for _, e := range entities {
+        ctx.Debugf(" + %d", e.StorageId)
+      }
+    }
+    entityApi.Delete(objectId)
+    return ErrNothingToRepair
+  }
+
+  masterContext, err := entityApi.FetchContentFromAny(o, true)
+  if err != nil {
+    return err
+  }
+  ctx.Debugf("Got %+v", masterContext)
+  return nil
+}

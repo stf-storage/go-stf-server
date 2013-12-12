@@ -1,18 +1,15 @@
 package stf
 
 import (
-  "crypto/sha1"
   "database/sql"
   "errors"
   "fmt"
-  "io"
   "math/rand"
   "net/http"
   "os"
   "os/user"
   "path"
   "path/filepath"
-  "strconv"
   "time"
   "code.google.com/p/gcfg"
   _ "github.com/go-sql-driver/mysql"
@@ -297,10 +294,7 @@ func (self *GlobalContext) NewRequestContext(w http.ResponseWriter, r *http.Requ
   config := self.Config()
   if config.Global.Debug {
     rc.DebugLogPtr = NewDebugLog()
-    h := sha1.New()
-    io.WriteString(h, fmt.Sprintf("%p", rc))
-    io.WriteString(h, strconv.FormatInt(time.Now().UTC().UnixNano(), 10))
-    rc.DebugLogPtr.Prefix = (fmt.Sprintf("%x", h.Sum(nil)))[0:8]
+    rc.DebugLogPtr.Prefix = GenerateRandomId(fmt.Sprintf("%p", rc), 8)
   }
   return rc
 }

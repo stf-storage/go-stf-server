@@ -21,7 +21,7 @@ func NewStorageApi (ctx ContextWithApi) *StorageApi {
   return &StorageApi { &BaseApi { ctx } }
 }
 
-func (self *StorageApi) LookupFromDB(id uint32) (*Storage, error) {
+func (self *StorageApi) LookupFromDB(id uint64) (*Storage, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Storage.LookupFromDB]")
@@ -53,7 +53,7 @@ func (self *StorageApi) LookupFromDB(id uint32) (*Storage, error) {
   return &s, nil
 }
 
-func (self *StorageApi) Lookup(id uint32) (*Storage, error) {
+func (self *StorageApi) Lookup(id uint64) (*Storage, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Storage.StorageLookup]")
@@ -79,7 +79,7 @@ func (self *StorageApi) Lookup(id uint32) (*Storage, error) {
   return sptr, nil
 }
 
-func (self *StorageApi) LookupMulti(ids []uint32) ([]Storage, error) {
+func (self *StorageApi) LookupMulti(ids []uint64) ([]Storage, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Storage.LookupMulti]")
@@ -89,7 +89,7 @@ func (self *StorageApi) LookupMulti(ids []uint32) ([]Storage, error) {
 
   var keys []string
   for _, id := range ids {
-    key  := cache.CacheKey("storage", strconv.FormatUint(uint64(id), 10))
+    key  := cache.CacheKey("storage", strconv.FormatUint(id, 10))
     keys = append(keys, key)
   }
 
@@ -102,7 +102,7 @@ func (self *StorageApi) LookupMulti(ids []uint32) ([]Storage, error) {
 
   var ret []Storage
   for _, id := range ids {
-    key  := cache.CacheKey("storage", strconv.FormatUint(uint64(id), 10))
+    key  := cache.CacheKey("storage", strconv.FormatUint(id, 10))
     st, ok := cached[key].(Storage)
 
     if ! ok {
@@ -153,9 +153,9 @@ func (self *StorageApi) LoadWritable(clusterId uint64, isRepair bool) ([]*Storag
     return nil, err
   }
 
-  var ids []uint32
+  var ids []uint64
   var list []*Storage
-  var id uint32
+  var id uint64
   for rows.Next() {
     err = rows.Scan(&id)
     if err != nil {

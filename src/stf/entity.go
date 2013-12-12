@@ -4,6 +4,7 @@ import (
   "bytes"
   "errors"
   "fmt"
+  "io"
   "net/http"
   "strings"
 )
@@ -20,6 +21,32 @@ type EntityApi struct {
 
 func NewEntityApi (ctx ContextWithApi) *EntityApi {
   return &EntityApi { &BaseApi { ctx } }
+}
+
+func (self *EntityApi) LookupForObject (objectId uint64) ([]Entity, error) {
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Entity.LookupForObject]")
+  defer closer()
+
+  tx, err := ctx.Txn()
+
+  rows, err := tx.Query("SELECT storage_id, status WHERE object_id = ?", objectId)
+  if err != nil {
+    return nil, err
+  }
+
+  var list []Entity
+  for rows.Next() {
+    e := Entity { ObjectId: objectId }
+    err = rows.Scan(&e.StorageId, &e.Status)
+    if err != nil {
+      return nil, err
+    }
+    list = append(list, e)
+  }
+
+  return list, nil
 }
 
 func (self *EntityApi) Create (
@@ -46,15 +73,118 @@ func (self *EntityApi) Create (
   return nil
 }
 
-func (self *EntityApi) FetchContent(
-  object *Object,
-  storageId uint64,
-  isRepair bool,
-) ([]byte, error) {
+func (self *EntityApi) FetchContent(o *Object, s *Storage, isRepair bool) ([]byte, error) {
   ctx := self.Ctx()
+
   closer := ctx.LogMark("[Entity.FetchContent]")
   defer closer()
+
   return nil, nil
+}
+
+func (self *EntityApi) FetchContentNocheck (
+  o *Object,
+  s *Storage,
+  isRepair bool,
+) (io.ReadCloser, error) {
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Entity.FetchContentNocheck]")
+  defer closer()
+
+  client := &http.Client{}
+
+  uri := strings.Join([]string{ s.Uri, o.InternalName }, "/")
+
+  ctx.Debugf(
+    "Sending GET %s (object = %d, storage = %d)",
+    uri,
+    o.Id,
+    s.Id,
+  )
+
+  // XXX Original perl version used to optimize the content fetch
+  // here by writing the content into the file system in chunks.
+  // Does go need/have such a mechanism?
+  resp, err := client.Get(uri)
+  if err != nil {
+    return nil, err
+  }
+
+  var okStr string
+  if resp.StatusCode == 200 {
+    okStr = "OK"
+  } else {
+    okStr = "FAIL"
+  }
+  ctx.Debugf(
+    "        GET %s was %s (%s)",
+    uri,
+    okStr,
+    resp.StatusCode,
+  )
+
+  if resp.ContentLength != o.Size {
+    ctx.Debugf(
+      "Fetched content size for object %d does not match registered size?! (got %d, expected %d)",
+      o.Id,
+      resp.ContentLength,
+      o.Size,
+    )
+    return nil, errors.New("Content size mismatch")
+  }
+
+  ctx.Debugf(
+    "Success fetching %s (object = %d, storage = %d)",
+    uri,
+    o.Id,
+    s.Id,
+  )
+
+  return resp.Body, nil
+}
+
+func (self *EntityApi) FetchContentFromAny (o *Object, isRepair bool) (io.ReadCloser, error) {
+  ctx := self.Ctx()
+
+  sql := `
+SELECT s.id
+  FROM storage s JOIN entity e ON s.id = e.storage_id
+  WHERE s.mode IN (?, ?) AND e.object_id = ?
+  ORDER BY rand()
+`
+
+  tx, err := ctx.Txn()
+  if err != nil {
+    return nil, err
+  }
+
+  rows, err := tx.Query(sql, STORAGE_MODE_READ_ONLY, STORAGE_MODE_READ_WRITE, o.Id)
+  if err != nil {
+    return nil, err
+  }
+
+  var list []uint64
+  for rows.Next() {
+    var sid uint64
+    err = rows.Scan(&sid)
+    if err != nil {
+      return nil, err
+    }
+
+    list = append(list, sid)
+  }
+
+  storageApi := ctx.StorageApi()
+  storages, err := storageApi.LookupMulti(list)
+  for _, s := range storages {
+    content, err := self.FetchContentNocheck(o, &s, isRepair)
+    if err != nil {
+      return content, nil
+    }
+  }
+
+  return nil, errors.New("Failed to fetch any content")
 }
 
 func (self *EntityApi) Store(
@@ -105,6 +235,67 @@ func (self *EntityApi) Store(
   )
 
   if err != nil {
+    return err
+  }
+
+  return nil
+}
+
+// Proceed with caution!!!! THIS WILL DELETE THE ENTIRE ENTITY SET!
+func (self *EntityApi) Delete(objectId uint64) error {
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Entity.Delete]")
+  defer closer()
+
+  tx, err := ctx.Txn()
+  if err != nil {
+    return err
+  }
+
+  // Find an existing object.internal_name or deleted_object.internal_name
+  var internalName string
+  row := tx.QueryRow("SELECT internal_name FROM object WHERE id = ?", objectId)
+  err = row.Scan(&internalName)
+  if err != nil {
+    row = tx.QueryRow("SELECT internal_name FROM deleted_object WHERE id = ?", objectId)
+    err = row.Scan(&internalName)
+  }
+
+  // if internalName == "", the Object was not found, that means we lost 
+  // the only way to access the actual entity in the storage(s)
+  // Skip the file deletion, and delete the database rows only
+  if internalName != "" {
+    client := &http.Client {}
+    rows, err := tx.Query("SELECT s.uri FROM storage s JOIN entity e ON e.storage_id = s.id WHERE e.object_id = ?", objectId)
+
+    for rows.Next() {
+      var uri string
+      err = rows.Scan(&uri)
+      if err != nil {
+        continue
+      }
+      fullUri := strings.Join([]string { uri, internalName }, "/")
+      req, err := http.NewRequest("DELETE", fullUri, nil)
+      if err != nil {
+        continue
+      }
+
+      res, err := client.Do(req)
+
+      if res.StatusCode != 204 {
+        ctx.Debugf("Delete request for '%s' failed (ignored): %s", fullUri, err)
+        continue
+      }
+    }
+  }
+
+  // We may or may not have deleted the actual file entities, but
+  // in either case once we got here, we just delete the logical
+  // entities here
+  _, err = tx.Exec("DELETE FROM entity WHERE object_id = ?", objectId)
+  if err != nil {
+    ctx.Debugf("Failed to delete from entity table for object %d: %s", objectId, err)
     return err
   }
 
