@@ -72,6 +72,7 @@ func (self *EntityApi) LookupForObject (objectId uint64) ([]Entity, error) {
     list = append(list, e)
   }
 
+  ctx.Debugf("Loaded %d entities for object %d", len(list), objectId)
   return list, nil
 }
 

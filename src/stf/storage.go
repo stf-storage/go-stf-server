@@ -101,6 +101,7 @@ func (self *StorageApi) LookupMulti(ids []uint64) ([]*Storage, error) {
   }
 
   var ret []*Storage
+  misses := 0
   for _, id := range ids {
     key  := cache.CacheKey("storage", strconv.FormatUint(id, 10))
     st, ok := cached[key].(Storage)
@@ -109,6 +110,8 @@ func (self *StorageApi) LookupMulti(ids []uint64) ([]*Storage, error) {
     if ok {
       s = &st
     } else {
+      ctx.Debugf("Cache MISS on key '%s'", key)
+      misses++
       s, err = self.Lookup(id)
       if err != nil {
         return nil, err
@@ -116,6 +119,8 @@ func (self *StorageApi) LookupMulti(ids []uint64) ([]*Storage, error) {
     }
     ret = append(ret, s)
   }
+
+  ctx.Debugf("Loaded %d storages (cache misses = %d)", len(ret), misses)
   return ret, nil
 }
 
