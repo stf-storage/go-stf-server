@@ -558,7 +558,7 @@ func (self *ObjectApi) Repair (objectId uint64) error {
         ctx.Debugf(" + %d", e.StorageId)
       }
     }
-    entityApi.Delete(objectId)
+    entityApi.DeleteAllForObject(objectId)
     return ErrNothingToRepair
   }
 

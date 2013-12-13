@@ -389,7 +389,7 @@ func (self *EntityApi) Store(
 }
 
 // Proceed with caution!!!! THIS WILL DELETE THE ENTIRE ENTITY SET!
-func (self *EntityApi) Delete(objectId uint64) error {
+func (self *EntityApi) DeleteAllForObject(objectId uint64) error {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Entity.Delete]")
@@ -577,11 +577,43 @@ func (self *EntityApi) SetStatus(e *Entity, st int) error {
   return nil
 }
 
+func (self *EntityApi) Delete (objectId uint64, storageId uint64) error {
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Entity.Delete]")
+  defer closer()
+
+  tx, err := ctx.Txn()
+  if err != nil {
+    return err
+  }
+
+  _, err = tx.Exec(
+    "DELETE FROM entity WHERE object_id = ? AND storage_id = ?",
+    objectId,
+    storageId,
+  )
+
+  if err != nil {
+    return err
+  }
+
+  ctx.Debugf(
+    "Successfully deleted logical entity (object %d, storage %d)",
+    objectId,
+    storageId,
+  )
+
+  return nil
+}
+
 func (self *EntityApi) Remove (e *Entity, isRepair bool) error {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Entity.Remove]")
   defer closer()
+
+  self.Delete(e.ObjectId, e.StorageId)
 
   cache := ctx.Cache()
   cacheKey := cache.CacheKey(
