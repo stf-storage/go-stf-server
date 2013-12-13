@@ -246,8 +246,11 @@ func (self *StorageClusterApi) Store(
       // this indeed matches what we want to store
       if bytes.Equal(fetchedMD5, expected) {
         // It's a match!
-        ctx.Debugf("Entity on storage %d exist, and md5 matches. Assume this is OK")
-        break
+        ctx.Debugf(
+          "Entity on storage %d exist, and md5 matches. Assume this is OK",
+          s.Id,
+        )
+        continue
       }
     }
 
