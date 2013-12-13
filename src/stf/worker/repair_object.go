@@ -49,8 +49,8 @@ func (self *RepairObjectWorker) Work(arg *stf.WorkerArg) {
   if err != nil {
     ctx.Debugf("Failed to repair %d: %s", objectId, err)
   } else {
-    ctx.Debugf("Repaired object %d", objectId)
     loopCtx.TxnCommit()
+    loopCtx.Debugf("Repaired object %d", objectId)
   }
   
 }
