@@ -272,7 +272,7 @@ func (self *ObjectApi) GetAnyValidEntityUrl (
     switch resp.StatusCode {
     case 200:
       ctx.Debugf("Request successs, returning URL '%s'", url)
-      return url,nil 
+      return url,nil
     case 304:
       // This is wierd, but this is how we're going to handle it
       ctx.Debugf("Request target is not modified, returning 304")
@@ -625,6 +625,11 @@ func (self *ObjectApi) Repair (objectId uint64) error {
     }
     contentReader := bytes.NewReader(contentBuf)
     for _, cluster := range clusters {
+      ctx.Debugf(
+        "Attempting to store object %d on cluster %d",
+        o.Id,
+        cluster.Id,
+      )
       err = clusterApi.Store(
         cluster.Id,
         o,
@@ -635,8 +640,19 @@ func (self *ObjectApi) Repair (objectId uint64) error {
       )
       if err == nil {
         designatedCluster = &cluster
+        ctx.Debugf(
+          "Successfully stored object %d on cluster %d",
+          o.Id,
+          cluster.Id,
+        )
         break
       }
+      ctx.Debugf(
+        "Failed to store object %d on cluster %d: %s",
+        o.Id,
+        cluster.Id,
+        err,
+      )
     }
 
     if designatedCluster == nil {
