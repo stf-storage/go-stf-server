@@ -77,6 +77,8 @@ func (self *QueueApi) Enqueue (queueName string, data string) error {
   return nil
 }
 
+var ErrNothingToDequeue = errors.New("Could not dequeue anything")
+var ErrNothingToDequeueDbErrors = errors.New("Could not dequeue anything (DB errors)")
 func (self *QueueApi) Dequeue (queueName string, timeout int) (*WorkerArg, error) {
   ctx := self.Ctx()
 
@@ -87,6 +89,7 @@ func (self *QueueApi) Dequeue (queueName string, timeout int) (*WorkerArg, error
 
   sql := fmt.Sprintf("SELECT args, created_at FROM %s WHERE queue_wait('%s', ?)", queueName, queueName)
 
+  dberr := 0
   // try all queues
   for i := 0; i < max; i++ {
     qidx := self.currentQueue
@@ -99,6 +102,7 @@ func (self *QueueApi) Dequeue (queueName string, timeout int) (*WorkerArg, error
     if err != nil {
       ctx.Debugf("Failed to retrieve QueueDB (%d): %s", qidx, err)
       // Ugh, try next one
+      dberr++
       continue
     }
 
@@ -112,6 +116,7 @@ func (self *QueueApi) Dequeue (queueName string, timeout int) (*WorkerArg, error
     if err != nil {
       ctx.Debugf("Failed to fetch from queue on QueueDB (%d): %s", qidx, err)
       // Ugn, try next one
+      dberr++
       continue
     }
 
@@ -119,8 +124,13 @@ func (self *QueueApi) Dequeue (queueName string, timeout int) (*WorkerArg, error
     return &arg, nil
   }
 
-  err := errors.New("Could not dequeue anything")
-  ctx.Debugf("%s", err)
   // if we got here, we were not able to dequeue anything
+  var err error
+  if dberr > 0 {
+    err = ErrNothingToDequeueDbErrors
+  } else {
+    err = ErrNothingToDequeue
+  }
+  ctx.Debugf("%s", err)
   return nil, err
 }

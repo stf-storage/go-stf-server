@@ -17,6 +17,14 @@ type WorkerCommand struct {
 
 var CmdStop = &WorkerCommand { WORKER_STOP }
 
+type Worker struct {
+  Id          string
+  Finalizer   func()
+  CommandChan chan *WorkerCommand
+  JobChan     chan *stf.WorkerArg
+  Handler     WorkerHandler
+}
+
 type WorkerHandler interface {
   Interval()            int
   NextJob ()            (*stf.WorkerArg, error)
@@ -53,17 +61,13 @@ func (self *GenericWorker) Debugf (format string, args ...interface {}) {
   }
 }
 
-// Assumes that this is run in a goroutine
-//    h := NewRepairObjectHandler(ctx)
-//    go RunWorker(h, mainChan)
-// mainChan is used to communicate between the master goroutine
-// and this worker goroutine
-func RunWorker(mainChan chan WorkerCommand, h WorkerHandler) {
+func (self *Worker) Run() {
   loop := true
 
   for loop {
     select {
-    case cmd := <-mainChan:
+    case cmd := <-self.CommandChan:
+      log.Printf("Received command %+v", cmd)
       switch cmd.Type {
       case WORKER_STOP:
         // Bail out of this loop
@@ -72,14 +76,12 @@ func RunWorker(mainChan chan WorkerCommand, h WorkerHandler) {
       default:
         log.Printf("Unknown command type = %d. Ignoring", cmd.Type)
       }
-    default:
-//      h.SetContext(ctx.NewLoopContext())
-      job, err := h.NextJob()
-      if err != nil {
-        h.Debugf("Did not get any job from NextJob(): %s", err)
-      } else {
-        h.Work(job)
-      }
+    }
+
+    h := self.Handler
+    select {
+    case job := <-self.JobChan:
+      h.Work(job)
     }
 
     // Wait for it...
@@ -90,5 +92,7 @@ func RunWorker(mainChan chan WorkerCommand, h WorkerHandler) {
     }
   }
 
+  log.Printf("RunWorker done")
+  self.Finalizer()
 }
 
