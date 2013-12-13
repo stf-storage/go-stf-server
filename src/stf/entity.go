@@ -41,11 +41,16 @@ func (self *EntityApi) Lookup(objectId uint64, storageId uint64) (*Entity, error
   e := Entity { objectId, storageId, 0 }
   err = row.Scan(&e.Status)
   if err != nil {
-    ctx.Debugf("Failed to execute query (Entity.Lookup): %s", err)
+    ctx.Debugf(
+      "Failed to execute query (Entity.Lookup [%d, %d]): %s",
+      objectId,
+      storageId,
+      err,
+    )
     return nil, err
   }
 
-  ctx.Debugf("Successfully loaded entity for object %d storage %D", objectId, storageId)
+  ctx.Debugf("Successfully loaded entity for object %d storage %d", objectId, storageId)
   return &e, nil
 }
 
