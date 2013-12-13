@@ -537,6 +537,11 @@ func (self *ObjectApi) Repair (objectId uint64) error {
   closer := ctx.LogMark("[Object.Repair]")
   defer closer()
 
+  ctx.Debugf(
+    "Repairing object %d",
+    objectId,
+  )
+
   entityApi := ctx.EntityApi()
   o, err := self.Lookup(objectId)
   if err != nil {
@@ -557,6 +562,10 @@ func (self *ObjectApi) Repair (objectId uint64) error {
     return ErrNothingToRepair
   }
 
+  ctx.Debugf(
+    "Fetching master content for object %d from any of the known entities",
+    o.Id,
+  )
   masterContent, err := entityApi.FetchContentFromAny(o, true)
   if err != nil {
     // One more shot. See if we can recover the content from ANY
@@ -571,6 +580,8 @@ func (self *ObjectApi) Repair (objectId uint64) error {
       )
     }
   }
+
+  ctx.Debugf("Successfully fetched master content")
 
   clusterApi := ctx.StorageClusterApi()
   clusters, err := clusterApi.LoadCandidatesFor(objectId)
@@ -589,6 +600,10 @@ func (self *ObjectApi) Repair (objectId uint64) error {
   var designatedCluster *StorageCluster
 
   // The object SHOULD be stored in the first instance
+  ctx.Debugf(
+    "Checking entity health on cluster %d",
+    clusters[0].Id,
+  )
   err = clusterApi.CheckEntityHealth(&clusters[0], o, true)
   needsRepair := err != nil
 

@@ -233,10 +233,14 @@ func (self *StorageClusterApi) Store(
     var fetchedMD5 []byte
     fetchOK := false
     if ! force {
-      if fetched, err := entityApi.FetchContent(o, s, isRepair); err == nil {
-        if fetchedContent, err = ioutil.ReadAll(fetched); err == nil {
-          fetchedMD5 = calcMD5(bytes.NewReader(fetchedContent))
-          fetchOK = true
+      // Entity in database needs to exist
+      if _, err := entityApi.Lookup(o.Id, s.Id); err == nil {
+        // If it does, not check for the content
+        if fetched, err := entityApi.FetchContent(o, s, isRepair); err == nil {
+          if fetchedContent, err = ioutil.ReadAll(fetched); err == nil {
+            fetchedMD5 = calcMD5(bytes.NewReader(fetchedContent))
+            fetchOK = true
+          }
         }
       }
     }

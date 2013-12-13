@@ -131,10 +131,14 @@ func (self *EntityApi) FetchContentNocheck (
   closer := ctx.LogMark("[Entity.FetchContentNocheck]")
   defer closer()
 
+  ctx.Debugf(
+    "Fetching content from storage %d",
+    s.Id,
+  )
+
   client := &http.Client{}
 
   uri := strings.Join([]string{ s.Uri, o.InternalName }, "/")
-
   ctx.Debugf(
     "Sending GET %s (object = %d, storage = %d)",
     uri,
