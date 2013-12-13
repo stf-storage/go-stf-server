@@ -64,7 +64,7 @@ func (self *EntityApi) LookupForObject (objectId uint64) ([]Entity, error) {
 
   tx, err := ctx.Txn()
 
-  rows, err := tx.Query("SELECT storage_id, status WHERE object_id = ?", objectId)
+  rows, err := tx.Query("SELECT storage_id, status FROM entity WHERE object_id = ?", objectId)
   if err != nil {
     return nil, err
   }
