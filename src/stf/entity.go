@@ -571,9 +571,21 @@ func (self *EntityApi) SetStatus(e *Entity, st int) error {
   )
 
   if err != nil {
+    ctx.Debugf(
+      "Failed to set status of entity (object %d storage %d) to %d)",
+      e.ObjectId,
+      e.StorageId,
+      st,
+    )
     return err
   }
 
+  ctx.Debugf(
+    "Successfully set status of entity (object %d storage %d) to %d)",
+    e.ObjectId,
+    e.StorageId,
+    st,
+  )
   return nil
 }
 
@@ -595,6 +607,12 @@ func (self *EntityApi) Delete (objectId uint64, storageId uint64) error {
   )
 
   if err != nil {
+    ctx.Debugf(
+      "Failed to delete logical entity (object %d, storage %d): %s",
+      objectId,
+      storageId,
+      err,
+    )
     return err
   }
 
@@ -656,7 +674,7 @@ func (self *EntityApi) Remove (e *Entity, isRepair bool) error {
     // or connection refused and such. Remember this incident via a
     // negative cache, so that we don't keep on
     cache.Set(cacheKey, -1, 300)
-    return err 
+    return err
   }
 
   switch {
