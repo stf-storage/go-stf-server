@@ -604,19 +604,19 @@ func (self *ObjectApi) Repair (objectId uint64) error {
     "Checking entity health on cluster %d",
     clusters[0].Id,
   )
-  err = clusterApi.CheckEntityHealth(&clusters[0], o, true)
+  err = clusterApi.CheckEntityHealth(clusters[0], o, true)
   needsRepair := err != nil
 
   if ! needsRepair {
     // No need to repair. Just make sure object -> cluster mapping
     // is intact
     ctx.Debugf(
-      "Object %s is correctly stored in cluster %d. Object does not need repair",
+      "Object %d is correctly stored in cluster %d. Object does not need repair",
       objectId,
       clusters[0].Id,
     )
 
-    designatedCluster = &clusters[0]
+    designatedCluster = clusters[0]
     currentCluster, _ := clusterApi.LookupForObject(objectId)
     if currentCluster == nil || designatedCluster.Id != currentCluster.Id {
       // Ignore errors. No harm done
@@ -654,7 +654,7 @@ func (self *ObjectApi) Repair (objectId uint64) error {
         false, // force
       )
       if err == nil {
-        designatedCluster = &cluster
+        designatedCluster = cluster
         ctx.Debugf(
           "Successfully stored object %d on cluster %d",
           o.Id,

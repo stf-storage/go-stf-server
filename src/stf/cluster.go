@@ -27,13 +27,14 @@ func NewStorageClusterApi (ctx ContextWithApi) *StorageClusterApi {
 }
 
 // These are defined to allow sorting via the sort package
-type ClusterCandidates []StorageCluster
+type ClusterCandidates []*StorageCluster
 
 func (self ClusterCandidates) Prepare(objectId uint64) {
   idStr := strconv.FormatUint(objectId, 10)
   for _, x := range self {
     key := strconv.FormatUint(uint64(x.Id), 10) + idStr
     x.sortHint = MurmurHash([]byte(key))
+log.Printf("sortHint for %s -> %x", key, x.sortHint)
   }
 }
 func (self ClusterCandidates) Len() int { return len(self) }
@@ -62,7 +63,7 @@ func (self *StorageClusterApi) LoadWritable () (ClusterCandidates, error) {
 
   var list ClusterCandidates
   for rows.Next() {
-    var s StorageCluster
+    s := &StorageCluster {}
     err = rows.Scan(&s.Id, &s.Name, &s.Mode)
     if err != nil {
       return nil, err
@@ -92,9 +93,11 @@ func (self *StorageClusterApi) LookupFromDB(id uint64) (*StorageCluster, error) 
   c := StorageCluster { StfObject { Id: id }, "", 0, 0 }
   err = row.Scan(&c.Name, &c.Mode)
   if err != nil {
-    ctx.Debugf("Failed to execute query (Lookup): %s", err)
+    ctx.Debugf("Failed to execute query (LookupFromDB): %s", err)
     return nil, err
   }
+
+  ctx.Debugf("Loaded storage cluster %d", id)
 
   return &c, nil
 }
@@ -148,7 +151,7 @@ func (self *StorageClusterApi) LookupForObject(objectId uint64) (*StorageCluster
 
 func (self *StorageClusterApi) LoadCandidatesFor(objectId uint64) (ClusterCandidates, error) {
   ctx := self.Ctx()
-  closer := ctx.LogMark("[Cluster.LoadCandidatesFor]")
+  closer := ctx.LogMark("[StorageCluster.LoadCandidatesFor]")
   defer closer()
 
   list, err := self.LoadWritable()
