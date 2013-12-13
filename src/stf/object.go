@@ -683,7 +683,10 @@ func (self *ObjectApi) Repair (objectId uint64) error {
   // Object is now properly stored in designatedCluster. Find which storages
   // map to this cluster, and remove any other entities, if available.
   // This may happen if we added new clusters and rebalancing ocurred
-  entities, _ := entityApi.LookupForObject(objectId)
+  entities, err := entityApi.LookupForObject(objectId)
+
+  // Cache needs to be invalidated regardless, but we should be careful
+  // about the timing
   cache     := ctx.Cache()
   cacheKey  := cache.CacheKey("storages_for", strconv.FormatUint(objectId, 10))
 
@@ -696,7 +699,10 @@ func (self *ObjectApi) Repair (objectId uint64) error {
     defer cacheInvalidator()
   }
 
-  if entities != nil && len(entities) > 0 {
+  // Note: this err is from entityApi.LookupForObject
+  if err != nil {
+    ctx.Debugf("Failed to fetch entities for object %d: %s", objectId, err)
+  } else if entities != nil && len(entities) > 0 {
     ctx.Debugf("Extra entities found: dropping status flag, then proceeding to remove %d entities", len(entities))
     for _, e := range entities {
       entityApi.SetStatus(&e, 0)
@@ -711,5 +717,6 @@ func (self *ObjectApi) Repair (objectId uint64) error {
     }
   }
 
+  ctx.Debugf("Done repair for object %d", objectId)
   return nil
 }
