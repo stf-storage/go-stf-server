@@ -34,7 +34,6 @@ func (self ClusterCandidates) Prepare(objectId uint64) {
   for _, x := range self {
     key := strconv.FormatUint(uint64(x.Id), 10) + idStr
     x.sortHint = MurmurHash([]byte(key))
-log.Printf("sortHint for %s -> %x", key, x.sortHint)
   }
 }
 func (self ClusterCandidates) Len() int { return len(self) }

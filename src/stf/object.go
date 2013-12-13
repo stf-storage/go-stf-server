@@ -683,7 +683,7 @@ func (self *ObjectApi) Repair (objectId uint64) error {
   // Object is now properly stored in designatedCluster. Find which storages
   // map to this cluster, and remove any other entities, if available.
   // This may happen if we added new clusters and rebalancing ocurred
-  entities, err := entityApi.LookupForObject(objectId)
+  entities, err := entityApi.LookupForObjectNotInCluster(objectId, designatedCluster.Id)
 
   // Cache needs to be invalidated regardless, but we should be careful
   // about the timing
@@ -705,7 +705,7 @@ func (self *ObjectApi) Repair (objectId uint64) error {
   } else if entities != nil && len(entities) > 0 {
     ctx.Debugf("Extra entities found: dropping status flag, then proceeding to remove %d entities", len(entities))
     for _, e := range entities {
-      entityApi.SetStatus(&e, 0)
+      entityApi.SetStatus(e, 0)
     }
 
     // Make sure to invalidate the cache here, because we don't want
@@ -713,7 +713,7 @@ func (self *ObjectApi) Repair (objectId uint64) error {
     cacheInvalidator()
 
     for _, e := range entities {
-      entityApi.Remove(&e, true)
+      entityApi.Remove(e, true)
     }
   }
 

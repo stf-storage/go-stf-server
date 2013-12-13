@@ -2,6 +2,7 @@ package stf
 
 import (
   "bytes"
+  "database/sql"
   "errors"
   "fmt"
   "io"
@@ -54,7 +55,63 @@ func (self *EntityApi) Lookup(objectId uint64, storageId uint64) (*Entity, error
   return &e, nil
 }
 
-func (self *EntityApi) LookupForObject (objectId uint64) ([]Entity, error) {
+func (self *EntityApi) LookupFromRows(rows *sql.Rows) ([]*Entity, error) {
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Entity.LookupFromRows]")
+  defer closer()
+
+  var list []*Entity
+  for rows.Next() {
+    e := &Entity{}
+    err := rows.Scan(&e.ObjectId, &e.StorageId, &e.Status)
+    if err != nil {
+      return nil, err
+    }
+    list = append(list, e)
+  }
+
+  ctx.Debugf("Loaded %d entities", len(list))
+  return list, nil
+}
+
+func (self *EntityApi) LookupForObjectNotInCluster (objectId uint64, clusterId uint64) ([]*Entity, error) {
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Entity.LookupForObjectNotInCluster]")
+  defer closer()
+
+  ctx.Debugf("Looking for entities for object %d", objectId)
+
+  tx, err := ctx.Txn()
+
+  rows, err := tx.Query(`
+SELECT e.object_id, e.storage_id, e.status
+  FROM entity e JOIN storage s ON e.storage_id = s.id
+  WHERE object_id = ? AND s.cluster_id != ?
+`,
+    objectId,
+    clusterId,
+  )
+  if err != nil {
+    return nil, err
+  }
+
+  list, err := self.LookupFromRows(rows)
+  if err != nil {
+    return nil, err
+  }
+
+  ctx.Debugf(
+    "Loaded %d entities for object %d (except cluster %d)",
+    len(list),
+    objectId,
+    clusterId,
+  )
+  return list, nil
+}
+
+func (self *EntityApi) LookupForObject (objectId uint64) ([]*Entity, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Entity.LookupForObject]")
@@ -64,19 +121,17 @@ func (self *EntityApi) LookupForObject (objectId uint64) ([]Entity, error) {
 
   tx, err := ctx.Txn()
 
-  rows, err := tx.Query("SELECT storage_id, status FROM entity WHERE object_id = ?", objectId)
+  rows, err := tx.Query(
+    `SELECT e.object_id, e.storage_id, e.status FROM entity e WHERE object_id = ?`,
+    objectId,
+  )
   if err != nil {
     return nil, err
   }
 
-  var list []Entity
-  for rows.Next() {
-    e := Entity { ObjectId: objectId }
-    err = rows.Scan(&e.StorageId, &e.Status)
-    if err != nil {
-      return nil, err
-    }
-    list = append(list, e)
+  list, err := self.LookupFromRows(rows)
+  if err != nil {
+    return nil, err
   }
 
   ctx.Debugf("Loaded %d entities for object %d", len(list), objectId)
