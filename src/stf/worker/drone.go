@@ -183,10 +183,6 @@ func (self *Drone) SpawnWatcher (name string) {
         loop = false
         continue
       default:
-        // No op. w/o it, we would block.
-      }
-
-      if loop {
         arg, err := ctx.QueueApi().Dequeue(table, timeout)
         if err == stf.ErrNothingToDequeueDbErrors {
           time.Sleep(10 * time.Second)
