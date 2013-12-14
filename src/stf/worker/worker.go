@@ -62,6 +62,7 @@ func (self *GenericWorker) Debugf (format string, args ...interface {}) {
 }
 
 func (self *Worker) Run() {
+  defer self.Finalizer()
   loop := true
   h := self.Handler
   for loop {
@@ -91,6 +92,5 @@ func (self *Worker) Run() {
   }
 
   log.Printf("RunWorker done")
-  self.Finalizer()
 }
 
