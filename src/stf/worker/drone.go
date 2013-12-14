@@ -182,13 +182,17 @@ func (self *Drone) SpawnWatcher (name string) {
       case _ = <-haltChan:
         loop = false
         continue
+      default:
+        // No op. w/o it, we would block.
       }
-      arg, err := ctx.QueueApi().Dequeue(table, timeout)
-      switch err {
-      case nil:
-        spec.JobChan <- arg
-      case stf.ErrNothingToDequeueDbErrors:
-        time.Sleep(10 * time.Second)
+
+      if loop {
+        arg, err := ctx.QueueApi().Dequeue(table, timeout)
+        if err == stf.ErrNothingToDequeueDbErrors {
+          time.Sleep(10 * time.Second)
+        } else {
+          spec.JobChan <- arg
+        }
       }
     }
     ctx.Debugf("Fetcher exiting")
