@@ -63,7 +63,7 @@ func (self *GenericWorker) Debugf (format string, args ...interface {}) {
 
 func (self *Worker) Run() {
   loop := true
-
+  h := self.Handler
   for loop {
     select {
     case cmd := <-self.CommandChan:
@@ -76,19 +76,17 @@ func (self *Worker) Run() {
       default:
         log.Printf("Unknown command type = %d. Ignoring", cmd.Type)
       }
-    }
-
-    h := self.Handler
-    select {
     case job := <-self.JobChan:
       h.Work(job)
     }
 
-    // Wait for it...
-    if interval := h.Interval(); interval > 0 {
-      // Randomize sleep time
-      d := time.Duration(rand.Int63n(int64(interval) * int64(time.Second)))
-      time.Sleep(d)
+    if loop {
+      // Wait for it...
+      if interval := h.Interval(); interval > 0 {
+        // Randomize sleep time
+        d := time.Duration(rand.Int63n(int64(interval) * int64(time.Second)))
+        time.Sleep(d)
+      }
     }
   }
 
