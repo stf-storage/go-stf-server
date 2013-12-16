@@ -35,19 +35,22 @@ func NewWorkerControllerFromArgv() (*WorkerController) {
   var name      string
   var tablename string
   var timeout   int
+  var maxWorkers int
   flag.StringVar(&configfile, "config", "etc/config.gcfg", "The path to config file")
   flag.StringVar(&name, "name", "", "The worker name")
   flag.StringVar(&tablename, "tablename", "", "The Q4M table name to wait for jobs")
   flag.IntVar(&timeout, "timeout", 5, "The timeout for each queue_wait() call")
+  flag.IntVar(&maxWorkers, "max-workers", 5, "Number of workers")
   flag.Parse()
 
-  return NewWorkerController(name, tablename, timeout)
+  return NewWorkerController(name, tablename, timeout, maxWorkers)
 }
 
 func NewWorkerController (
   name string,
   tablename string,
   timeout int,
+  maxWorkers int,
 ) (*WorkerController) {
   home := stf.GetHome()
   cfg, err := stf.LoadConfig(home)
@@ -83,7 +86,7 @@ func NewWorkerController (
     &sync.WaitGroup {},
 
     // XXX DUMMY
-    0,
+    maxWorkers,
 
     map[string]chan bool {},
 
@@ -207,10 +210,12 @@ func (self *WorkerController) Respawn() {
   maxWorkers := self.MaxWorkers
   if curWorkers >= maxWorkers {
     // Nothing to spawn
+    log.Printf("Current number of workers <= Max workers (%d <= %d).", curWorkers, maxWorkers)
     return
   }
 
   for i := 0; i < (maxWorkers - curWorkers); i++ {
+    log.Printf("Spawning new worker")
     id := stf.GenerateRandomId(self.Name, 40)
     c := self.StartWorker(self.Waiter, self.JobChan)
     self.ActiveWorkers[id] = c
