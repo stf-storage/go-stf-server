@@ -45,7 +45,21 @@ func NewRepairObjectWorker(
 func (self *RepairObjectWorker) Start(w *sync.WaitGroup) {
   w.Add(1)
   go func() {
-    self.Work(<-self.JobChan)
+    defer w.Done()
+
+    ticker := time.Tick(1 * time.Second)
+    loop := true
+    for loop {
+      select {
+      case job := <-self.JobChan:
+        self.Work(job)
+      case <-self.ControlChan:
+        loop = false
+        break
+      case <-ticker:
+        // no op
+      }
+    }
   }()
 }
 

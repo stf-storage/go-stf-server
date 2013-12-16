@@ -132,6 +132,7 @@ func (self *WorkerController) StartFetcherThread() {
       }
 
       if skipDequeue {
+        time.Sleep( 500 * time.Millisecond )
         continue
       }
 
@@ -140,6 +141,7 @@ func (self *WorkerController) StartFetcherThread() {
       switch err {
       case nil:
         jobChan <- job
+
       default:
         // We encountered an error. It's very likely that we are not going
         // to succeed getting the next one. In that case, go listen to the
