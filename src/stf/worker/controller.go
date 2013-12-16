@@ -113,20 +113,26 @@ func (self *WorkerController) StartFetcherThread() {
 
     ticker := time.Tick(5 * time.Second)
 
+    skipDequeue := false
     loop := true
     for loop {
-log.Printf("fetcher loop")
       select {
       case <-controlChan:
         log.Printf("Received fetcher termination request. Exiting")
         loop = false
         break
+      case <-ticker:
+        skipDequeue = false
       default:
         // do nothing
       }
 
       if ! loop {
         break
+      }
+
+      if skipDequeue {
+        continue
       }
 
       // Go and dequeue
@@ -136,8 +142,10 @@ log.Printf("fetcher loop")
         jobChan <- job
       default:
         // We encountered an error. It's very likely that we are not going
-        // to succeed getting the next one. Wait for next tick
-        <-ticker
+        // to succeed getting the next one. In that case, go listen to the
+        // controlChan, but don't fall into the dequeue clause until the
+        // next "tick" arrives
+        skipDequeue = true
       }
     }
     log.Printf("Fetcher for %s exiting", name)
