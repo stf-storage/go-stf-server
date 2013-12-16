@@ -32,7 +32,7 @@ func (self *WorkerContext) Cache() *stf.MemdClient {
 
 func (self *WorkerContext) MainDB() (*sql.DB, error) {
   if self.MainDBPtr == nil {
-    db, err := stf.ConnectDB(self, &self.Config().MainDB)
+    db, err := stf.ConnectDB(&self.Config().MainDB)
     if err != nil {
       return nil, err
     }
@@ -44,7 +44,7 @@ func (self *WorkerContext) MainDB() (*sql.DB, error) {
 func (self *WorkerContext) QueueDB(i int) (*sql.DB, error) {
   if self.QueueDBPtrList[i] == nil {
     config := self.Config().QueueDBList[i]
-    db, err := stf.ConnectDB(self, config)
+    db, err := stf.ConnectDB(config)
     if err != nil {
       return nil, err
     }

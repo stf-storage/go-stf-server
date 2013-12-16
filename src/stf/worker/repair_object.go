@@ -1,32 +1,52 @@
 package worker
 
 import (
+  "math/rand"
   "stf"
   "strconv"
+  "sync"
+  "time"
 )
 
 type RepairObjectWorker struct {
-  GenericWorker
+  Ctx           *WorkerContext
+  ControlChan   chan bool
+  JobChan       chan *stf.WorkerArg
 }
 
-func NewRepairObjectWorker(ctx *WorkerContext) *RepairObjectWorker {
-  return &RepairObjectWorker {
-    GenericWorker {
-      5,
-      "queue_repair_object",
-      ctx,
+func NewWorkerContext () *WorkerContext {
+  rand.Seed(time.Now().UTC().UnixNano())
+  home := stf.GetHome()
+  ctx := &WorkerContext{
+    stf.GlobalContext {
+      HomeStr: home,
     },
+    nil,
   }
+  return ctx
 }
 
-func (self *RepairObjectWorker) NextJob() (*stf.WorkerArg, error) {
-  ctx := self.Ctx()
-  ctx.Debugf("Attempting to fetch next job from %s", self.QueueName())
-  arg, err := ctx.QueueApi().Dequeue(self.QueueName(), self.Interval())
-  if err != nil {
-    return nil, err
+func NewRepairObjectWorker(
+  w *sync.WaitGroup,
+  jobChan chan *stf.WorkerArg,
+) chan bool {
+
+  ctrlChan := make(chan bool)
+  worker := &RepairObjectWorker {
+    // This is a DUMMY! DUMMY! I tell you it's a DUMMY!
+    NewWorkerContext(),
+    ctrlChan,
+    jobChan,
   }
-  return arg, nil
+  worker.Start(w)
+  return ctrlChan
+}
+
+func (self *RepairObjectWorker) Start(w *sync.WaitGroup) {
+  w.Add(1)
+  go func() {
+    self.Work(<-self.JobChan)
+  }()
 }
 
 func (self *RepairObjectWorker) Work(arg *stf.WorkerArg) {
@@ -36,7 +56,7 @@ func (self *RepairObjectWorker) Work(arg *stf.WorkerArg) {
   }
 
   // Create a per-loop context
-  ctx := self.Ctx() // Note, this is "Global" context
+  ctx := self.Ctx // Note, this is "Global" context
   loopCtx := ctx.NewLoopContext()
   closer, err := loopCtx.TxnBegin()
   if err != nil {
@@ -52,5 +72,4 @@ func (self *RepairObjectWorker) Work(arg *stf.WorkerArg) {
     loopCtx.TxnCommit()
     loopCtx.Debugf("Repaired object %d", objectId)
   }
-  
 }

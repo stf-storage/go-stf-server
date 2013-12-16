@@ -6,11 +6,7 @@ import (
   "fmt"
   "math/rand"
   "net/http"
-  "os"
-  "path"
-  "path/filepath"
   "time"
-  "code.google.com/p/gcfg"
   _ "github.com/go-sql-driver/mysql"
 )
 
@@ -115,37 +111,14 @@ func (self *BaseContext) LogMark(format string, args ...interface{}) func () {
 }
 
 func (self *GlobalContext) Home() string { return self.HomeStr }
-func LoadConfig(ctx *GlobalContext) (*Config, error) {
-  cfg   := &Config {}
-  file  := os.Getenv("STF_CONFIG")
-  if file == "" {
-    file = path.Join("etc", "config.gcfg")
-  }
-  if ! filepath.IsAbs(file) {
-    file = path.Join(ctx.Home(), file)
-  }
-
-  err := gcfg.ReadFileInto(cfg, file)
-  if err != nil {
-    return nil, err
-  }
-
-  list := []*DatabaseConfig {}
-  for k, _ := range cfg.QueueDB {
-    list = append(list, cfg.QueueDB[k])
-  }
-  cfg.QueueDBList = list
-
-  return cfg, nil
+func (ctx *GlobalContext) LoadConfig() (*Config, error) {
+  return LoadConfig(ctx.Home())
 }
 
 func NewContext() (*GlobalContext, error) {
   rand.Seed(time.Now().UTC().UnixNano())
 
-  home, err := os.Getwd()
-  if err != nil {
-    return nil, err
-  }
+  home := GetHome()
   ctx := &GlobalContext{
     HomeStr: home,
   }
@@ -158,7 +131,7 @@ func BootstrapContext() (*GlobalContext, error) {
     return nil, err
   }
 
-  cfg, err  := LoadConfig(ctx)
+  cfg, err  := ctx.LoadConfig()
   if err != nil {
     return nil, err
   }
@@ -189,7 +162,7 @@ func (self *GlobalContext) Config() *Config { return self.ConfigPtr }
 
 func (self *GlobalContext) MainDB() (*sql.DB, error) {
   if self.MainDBPtr == nil {
-    db, err := ConnectDB(self, &self.Config().MainDB)
+    db, err := ConnectDB(&self.Config().MainDB)
     if err != nil {
       return nil, err
     }
@@ -202,7 +175,7 @@ func (self *GlobalContext) MainDB() (*sql.DB, error) {
 func (self *GlobalContext) QueueDB(i int) (*sql.DB, error) {
   if self.QueueDBPtrList[i] == nil {
     config := self.Config().QueueDBList[i]
-    db, err := ConnectDB(self, config)
+    db, err := ConnectDB(config)
     if err != nil {
       return nil, err
     }

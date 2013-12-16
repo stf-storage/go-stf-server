@@ -1,247 +1,149 @@
 package worker
 
 import (
+  "errors"
+  "flag"
+  "fmt"
+  "log"
   "os"
+  "os/exec"
   "os/signal"
   "stf"
-  "sync"
   "syscall"
   "time"
 )
 
-var ANNOUNCE_EXPIRES = 5 * time.Minute
-
-type QueueWatcher func(* WorkerContext, chan bool, func())
-
-type WorkerSpec struct {
-  Name string                       // Used just for ID
-  QueueTable string
-  QueueTimeout int
-  Watcher QueueWatcher              // Struct that watches the queue
-  JobChan chan *stf.WorkerArg           // Channel to communicate from QueueWatcher (Q4M) -> Workers
-  CommandChan map[string]chan *WorkerCommand    // Channel to communicate from Controller -> Workers
+type WorkerUnitDef struct {
+  Name            string
+  QueueTableName  string
+  Command         *exec.Cmd
 }
 
-type Drone struct {
-  Id          string
-  ctx         *WorkerContext
-  Workers     map[string]*WorkerSpec
-  Fetchers    map[string]chan bool
-  WorkerGroup *sync.WaitGroup
+type WorkerDrone struct {
+  Config          *stf.Config
+  WorkerExitChan  chan *WorkerUnitDef
+  WorkerUnitDefs  []*WorkerUnitDef
 }
 
-func BootstrapContext() (*WorkerContext, error) {
-  ctx, err := stf.BootstrapContext()
+func NewDroneFromArgv () (*WorkerDrone) {
+  var configname string
+  flag.StringVar(&configname, "config", "etc/config.gcfg", "config file path")
+  flag.Parse()
+
+  home := stf.GetHome()
+  cfg, err := stf.LoadConfig(home)
+  if err != nil {
+    log.Fatalf("Failed to config: %s", err)
+  }
+
+  return NewDrone(cfg)
+}
+
+func NewDrone(cfg *stf.Config) (*WorkerDrone) {
+  return &WorkerDrone {
+    cfg,
+    make(chan *WorkerUnitDef),
+    []*WorkerUnitDef{
+      &WorkerUnitDef {
+        "RepairObject",
+        "queue_repair_object",
+        nil,
+      },
+    },
+  }
+}
+
+func (self *WorkerDrone) Start() {
+  defer self.KillWorkerUnits()
+
+  for _, t := range self.WorkerUnitDefs {
+    cmd, err := self.SpawnWorkerUnit(t)
+    if err != nil {
+      // If we failed to start out the first command
+      // then we should halt
+      log.Fatalf("Failed to start WorkerUnit for %s: %s", t.Name, err)
+    }
+
+    t.Command = cmd
+  }
+
+  loop := true
+
+  // XXX Signal names are not portable... what to do?
+  sigChan := make(chan os.Signal, 1)
+  signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+  defer func() {signal.Stop(sigChan) }()
+
+  // Channel where we receive process exits
+  exitChan := self.WorkerExitChan
+
+  ticker := time.Tick(1 * time.Second)
+
+  for loop {
+    select {
+    case sig := <-sigChan:
+      log.Printf("Received signal %s", sig)
+      loop = false
+      break // terminate early
+    case t := <-exitChan:
+      self.SpawnWorkerUnit(t)
+      break // 
+    default:
+      // When we fall here we know that we neither got a signal
+      // nor an exit notice. wait for the next ticker, which effectively
+      // lets us "sleep"
+      <-ticker
+    }
+  }
+}
+
+func (self *WorkerDrone) SpawnWorkerUnit (t *WorkerUnitDef) (*exec.Cmd, error) {
+  cmdname := "worker_unit"
+  fullpath, err := exec.LookPath(cmdname)
+  if err != nil {
+    return nil, errors.New(
+      fmt.Sprintf(
+        "Failed to find absolute path for '%s': %s",
+        cmdname,
+        err,
+      ),
+    )
+  }
+
+  cmd := exec.Command(
+    fullpath,
+    "--config",
+    self.Config.FileName,
+    "--name",
+    t.Name,
+    "--tablename",
+    t.QueueTableName,
+  )
+
+  // We need to be able to kill this process at any given
+  // moment in time. Therefore, we need to pass back the
+  // reference to this command (at least, the process)
+  // to the caller
+  log.Printf("Starting command %v", cmd.Args)
+  err = cmd.Start()
   if err != nil {
     return nil, err
   }
-  return &WorkerContext { *ctx, nil, }, nil
+
+  exitChan := self.WorkerExitChan
+  go func () {
+    cmd.Wait()
+    log.Printf("Exit: %v", cmd.Args)
+    exitChan <- t
+  }()
+
+  return cmd, nil
 }
 
-func BootstrapWorker (ctx *WorkerContext) *Drone {
-  wc := map[string]chan *WorkerCommand {}
-  workers := map[string]*WorkerSpec {
-    "RepairObject": &WorkerSpec {
-      "RepairObject",
-      "queue_repair_object",
-      60,
-      nil,
-      make(chan *stf.WorkerArg),
-      wc,
-    },
-  }
-
-  fs := map[string]chan bool {}
-  return &Drone {
-    "",
-    ctx,
-    workers,
-    fs,
-    &sync.WaitGroup{},
-  }
-}
-
-func (self *Drone) Ctx() *WorkerContext {
-  return self.ctx
-}
-
-func (self *Drone) Start () {
-  // This channel receives signals from the outside world
-  // It's also the condvar (sort of) that blocks the main
-  // thread that allows other goroutines to go
-  sigChan := make(chan os.Signal, 1)
-  signal.Notify(
-    sigChan,
-    syscall.SIGTERM,
-    syscall.SIGINT,
-    syscall.SIGHUP,
-  )
-
-  for i := 0; i < 10; i++ {
-    self.SpawnWorker("RepairObject")
-  }
-
-  // When we receive a SIGHUP, we kill just reload our
-  // settings, and restart, so we do this in a loop
-  ctx := self.Ctx()
-  loop := true
-  for loop {
-    ctx.Debugf("Wait for signal")
-    sig := <-sigChan
-    switch sig {
-    case syscall.SIGHUP:
-      panic("Unimplemented")
-    case syscall.SIGTERM, syscall.SIGINT:
-      // Tell the workers to stop, and then bail
-      // XXX This needs to be a broadcast operation
-      ctx.Debugf("Received TERM/INT")
-      for _, spec := range self.Workers {
-        for _, c := range spec.CommandChan {
-          c <- CmdStop
-        }
-      }
-
-      for _, c := range self.Fetchers {
-        c <- true
-      }
-      loop = false
-      break
-    default:
-      ctx.Debugf("Received unknown signal")
+func (self *WorkerDrone) KillWorkerUnits () {
+  for _, t := range self.WorkerUnitDefs {
+    if cmd := t.Command; cmd != nil {
+      cmd.Process.Kill()
     }
   }
-  // Just to be nice
-  signal.Stop(sigChan)
-
-  // Wait here for all the workers to terminate
-  self.WorkerGroup.Wait()
-}
-
-func (self *Drone) SpawnWorker (name string) {
-  ctx := self.Ctx()
-
-  closer := ctx.LogMark("[Drone.SpawnWorker]")
-  defer closer()
-
-  spec := self.Workers[name]
-
-  // Are we already watching this queue?
-  if spec.Watcher == nil {
-    ctx.Debugf("Starting queue watcher for %s", name)
-    self.SpawnWatcher(name)
-  }
-
-  workerId := stf.GenerateRandomId("worker", 40)
-
-  cmdChan := make(chan *WorkerCommand)
-
-  // Add to spec
-  spec.CommandChan[workerId] = cmdChan
-
-  wg := self.WorkerGroup
-  w  := &Worker {
-    workerId,
-    func () {
-      wg.Done()
-      delete(spec.CommandChan, workerId)
-    },
-    cmdChan,
-    spec.JobChan,
-    NewRepairObjectWorker(self.Ctx()),
-  }
-
-  wg.Add(1)
-  go w.Run()
-}
-
-func (self *Drone) SpawnWatcher (name string) {
-  ctx := self.Ctx()
-
-  closer := ctx.LogMark("[Drone.SpawnWatcher]")
-  defer closer()
-
-  spec := self.Workers[name]
-
-  table   := spec.QueueTable
-  timeout := spec.QueueTimeout
-  if timeout < 1 {
-    timeout = 60
-  }
-
-  fetcherId := stf.GenerateRandomId("fetcher", 40)
-
-  haltChan := make(chan bool)
-  self.Fetchers[fetcherId] = haltChan
-  fetcher := func (ctx *WorkerContext, haltChan chan bool, finalizer func()) {
-    ctx.Debugf("Starting dequeue loop")
-    defer finalizer()
-
-    loop := true
-    for loop {
-      select {
-      case _ = <-haltChan:
-        loop = false
-        continue
-      default:
-        arg, err := ctx.QueueApi().Dequeue(table, timeout)
-        if err == stf.ErrNothingToDequeueDbErrors {
-          time.Sleep(10 * time.Second)
-        } else {
-          spec.JobChan <- arg
-        }
-      }
-    }
-    ctx.Debugf("Fetcher exiting")
-  }
-
-  finalizer := func() {
-    delete(self.Fetchers, fetcherId)
-  }
-
-  spec.Watcher = fetcher
-
-  ctx.Debugf("Starting goroutine for fetcher")
-  go fetcher(ctx, haltChan, finalizer)
-}
-
-func (self *Drone) Control (notifyChan chan bool) {
-  // Periodic announce tick
-  announceTick := time.Tick(ANNOUNCE_EXPIRES / 2)
-//   := time.Tick(10 * time.Minute)
-
-  // The control thread goes into an infinite loop
-  for self.ShouldLoop() {
-    select {
-    case <- announceTick:
-      self.Announce()
-    }
-  }
-  // Before we go into the Ticker loop, we need to
-  // execute the main process once
-/*
-  self.CheckState (notifyChan)
-  for _ = range c {
-    self.CheckState(notifyChan)
-  }
-*/
-}
-
-func (self *Drone) Announce() {
-  ctx := self.Ctx()
-  db, err := ctx.MainDB()
-  if err != nil {
-    return
-  }
-  secs := ANNOUNCE_EXPIRES / time.Second
-  _, err = db.Exec("INSERT INTO worker_election (drone_id, expires_at) VALUES (?, UNIX_TIMESTAMP() + ?) ON DUPLICATE KEY UPDATE expires_at = expires_at + ?", self.Id, secs, secs)
-}
-
-func (self *Drone) ShouldLoop() bool {
-  return true
-}
-
-func (self *Drone) CheckState (notifyChan chan bool) {
-}
-
-func (self *Drone) SpawnWorkers() {
 }

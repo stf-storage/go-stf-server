@@ -6,6 +6,8 @@ import (
   "errors"
   "fmt"
   "io"
+  "log"
+  "os"
   "os/user"
   "strconv"
   "time"
@@ -20,7 +22,19 @@ func GenerateRandomId(hint string, length int) string {
   return (fmt.Sprintf("%x", h.Sum(nil)))[0:length]
 }
 
-func ConnectDB(dbg DebugWriter, config *DatabaseConfig) (*sql.DB, error) {
+func GetHome () (string) {
+  home := os.Getenv("STF_HOME")
+  if home == "" {
+    var err error
+    home, err = os.Getwd()
+    if err != nil {
+      log.Fatalf("Failed to get home from env and Getwd: %s", err)
+    }
+  }
+  return home
+}
+
+func ConnectDB(config *DatabaseConfig) (*sql.DB, error) {
   if config.Dbtype == "" {
     config.Dbtype = "mysql"
   }
@@ -59,8 +73,6 @@ func ConnectDB(dbg DebugWriter, config *DatabaseConfig) (*sql.DB, error) {
     config.ConnectString,
     config.Dbname,
   )
-
-  dbg.Debugf("Connecting to dsn: %s", dsn)
 
   db, err := sql.Open(config.Dbtype, dsn)
   if err != nil {
