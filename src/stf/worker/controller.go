@@ -245,6 +245,8 @@ log.Printf("Checking DB %d", i)
     row := db.QueryRow(sql, self.QueueTableName, self.QueueTimeout)
 
     err = row.Scan(&arg.Arg, &arg.CreatedAt)
+    db.Exec("SELECT queue_end()") // Call this regardless
+
     if err != nil {
       continue
     }
