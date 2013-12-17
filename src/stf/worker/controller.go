@@ -16,6 +16,7 @@ import (
 type WorkerCommChannel chan WorkerCommand
 type HandlerArgs struct {
   Id      string
+  MaxJobs int
   JobChan chan *stf.WorkerArg
   ControlChan WorkerCommChannel
   Waiter  *sync.WaitGroup
@@ -35,6 +36,7 @@ type WorkerController struct {
   QueueTimeout        int
   Waiter              *sync.WaitGroup
   MaxWorkers          int
+  MaxJobsPerWorker    int
   // channels to send worker-specific commands
   ActiveWorkers       map[string]WorkerCommChannel
   CreateHandler       CreateHandlerFunc
@@ -49,9 +51,11 @@ func NewWorkerControllerFromArgv(
   var configfile string
   var timeout   int
   var maxWorkers int
+  var maxJobsPerWorker int
   flag.StringVar(&configfile, "config", "etc/config.gcfg", "The path to config file")
   flag.IntVar(&timeout, "timeout", 5, "The timeout for each queue_wait() call")
   flag.IntVar(&maxWorkers, "max-workers", 5, "Number of workers")
+  flag.IntVar(&maxJobsPerWorker, "max-jobs-per-worker", 1000, "Number of jobs that each goroutine processes until exiting")
   flag.Parse()
 
   return NewWorkerController(
@@ -59,6 +63,7 @@ func NewWorkerControllerFromArgv(
     tablename,
     timeout,
     maxWorkers,
+    maxJobsPerWorker,
     createHandlerFunc,
   )
 }
@@ -68,6 +73,7 @@ func NewWorkerController (
   tablename string,
   timeout int,
   maxWorkers int,
+  maxJobsPerWorker int,
   createHandlerFunc CreateHandlerFunc,
 ) (*WorkerController) {
   home := stf.GetHome()
@@ -104,6 +110,8 @@ func NewWorkerController (
     &sync.WaitGroup {},
 
     maxWorkers,
+
+    maxJobsPerWorker,
 
     map[string]WorkerCommChannel {},
 
@@ -252,6 +260,7 @@ func (self *WorkerController) Respawn() {
     id := stf.GenerateRandomId(self.Name, 40)
     args := &HandlerArgs{
       id,
+      self.MaxJobsPerWorker,
       self.JobChan,
       self.WorkerChan,
       self.Waiter,

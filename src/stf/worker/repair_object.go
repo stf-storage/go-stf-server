@@ -14,6 +14,7 @@ func NewRepairObjectWorker(args *HandlerArgs) WorkerCommChannel {
   worker := &RepairObjectWorker {
     args.Id,
     NewWorkerContext(),
+    args.MaxJobs,
     args.ControlChan,
     privateChan,
     args.JobChan,
@@ -24,6 +25,10 @@ func NewRepairObjectWorker(args *HandlerArgs) WorkerCommChannel {
 
 func (self *RepairObjectWorker) GetId() string {
   return self.Id
+}
+
+func (self *RepairObjectWorker) GetMaxJobs() int {
+  return self.MaxJobs
 }
 
 func (self *RepairObjectWorker) GetJobChannel() JobChannel {

@@ -2,6 +2,7 @@ package worker
 
 import (
   "database/sql"
+  "log"
   "math/rand"
   "stf"
   "sync"
@@ -36,6 +37,7 @@ type JobChannel     chan *stf.WorkerArg
 type GenericWorker struct {
   Id            string
   Ctx           *WorkerContext
+  MaxJobs       int
   ControlChan   WorkerCommChannel
   PrivateChan   WorkerCommChannel
   JobChan       JobChannel
@@ -44,6 +46,7 @@ type GenericWorker struct {
 type WorkerHandler interface {
   Work(arg *stf.WorkerArg)
   GetId() string
+  GetMaxJobs()        int
   GetJobChannel()     JobChannel
   GetPrivateChannel() WorkerCommChannel
   GetControlChannel() WorkerCommChannel
@@ -94,7 +97,7 @@ func GenericWorkerJobReceiver(handler WorkerHandler, w *sync.WaitGroup) {
 
   jobChan := handler.GetJobChannel()
   jobCount := 0
-  maxJobs := 1000
+  maxJobs := handler.GetMaxJobs()
   ticker := time.Tick(1 * time.Second)
   loop := true
   for loop {

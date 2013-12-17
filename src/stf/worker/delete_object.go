@@ -13,6 +13,7 @@ func NewDeleteObjectWorker(args *HandlerArgs) WorkerCommChannel {
   worker := &DeleteObjectWorker {
     args.Id,
     NewWorkerContext(),
+    args.MaxJobs,
     args.ControlChan,
     privateChan,
     args.JobChan,
@@ -23,6 +24,10 @@ func NewDeleteObjectWorker(args *HandlerArgs) WorkerCommChannel {
 
 func (self *DeleteObjectWorker) GetId() string {
   return self.Id
+}
+
+func (self *DeleteObjectWorker) GetMaxJobs() int {
+  return self.MaxJobs
 }
 
 func (self *DeleteObjectWorker) GetJobChannel() JobChannel {
