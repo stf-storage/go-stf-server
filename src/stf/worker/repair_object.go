@@ -1,6 +1,7 @@
 package worker
 
 import (
+  "database/sql"
   "math/rand"
   "stf"
   "strconv"
