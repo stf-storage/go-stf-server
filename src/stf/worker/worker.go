@@ -2,7 +2,6 @@ package worker
 
 import (
   "database/sql"
-  "log"
   "math/rand"
   "stf"
   "sync"
