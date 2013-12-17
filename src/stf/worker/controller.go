@@ -248,14 +248,14 @@ func (self *WorkerController) Dequeue() (*stf.WorkerArg, error) {
 
   max := len(qdbConfig)
   var arg stf.WorkerArg
-  for i := self.CurrentQueueIdx; i < max; i++ {
+  for i := 0; i < max; i++ {
 log.Printf("Checking DB %d", i)
     idx := self.CurrentQueueIdx
     self.CurrentQueueIdx++
-    if idx >= max {
-      idx = 0
+    if self.CurrentQueueIdx >= max {
+      self.CurrentQueueIdx = 0
     }
-    config := qdbConfig[i]
+    config := qdbConfig[idx]
     db, err := stf.ConnectDB(config)
 
     if err != nil {
