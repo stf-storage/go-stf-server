@@ -223,7 +223,8 @@ func (self *WorkerController) StartControllerThread () {
         default:
           log.Printf("Unknown command type %d", cmd.GetType())
         }
-      case <-ticker:
+      default:
+        <-ticker
       }
 
       if ! loop {
