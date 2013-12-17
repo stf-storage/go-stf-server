@@ -166,6 +166,9 @@ func (self *WorkerController) StartControllerThread () {
 
     ticker := time.Tick(5 * time.Second)
 
+    // Before looping, we need to spawn workers
+    self.Respawn()
+
     loop := true
     for loop {
       doRespawn := false
@@ -225,11 +228,13 @@ func (self *WorkerController) Respawn() {
 func (self *WorkerController) KillAll() {
   // Send the fetcher a termination signal
   log.Printf("KillAll: Sending notice to fetcher")
-  self.FetcherControlChan <- true
+  // Closing the channel will cause <-ctrlChan in fetcher to
+  // succeed (http://dave.cheney.net/tag/golang-3)
+  close(self.FetcherControlChan)
 
   for id, c := range self.ActiveWorkers {
     log.Printf("KillAll: Sending notice to worker %s", id)
-    c <- true
+    close(c)
   }
 }
 
