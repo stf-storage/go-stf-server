@@ -1,9 +1,10 @@
 package worker
 
 import (
-  "log"
+  "database/sql"
   "math/rand"
   "stf"
+  "sync"
   "time"
 )
 
@@ -17,80 +18,65 @@ type WorkerCommand struct {
 
 var CmdStop = &WorkerCommand { WORKER_STOP }
 
-type Worker struct {
-  Id          string
-  Finalizer   func()
-  CommandChan chan *WorkerCommand
-  JobChan     chan *stf.WorkerArg
-  Handler     WorkerHandler
+type JobChannel     chan *stf.WorkerArg
+type ControlChannel chan bool
+type GenericWorker struct {
+  Ctx           *WorkerContext
+  ControlChan   ControlChannel
+  JobChan       JobChannel
 }
 
 type WorkerHandler interface {
-  Interval()            int
-  NextJob ()            (*stf.WorkerArg, error)
-  QueueName()           string
-  Work (*stf.WorkerArg)
-  Debugf(string, ...interface{})
+  Work(arg *stf.WorkerArg)
+  GetJobChannel()     JobChannel
+  GetControlChannel() ControlChannel
 }
 
-type GenericWorker struct {
-  IntervalSlot  int
-  QueueNameStr string
-  ctx *WorkerContext
-}
-
-func (self *GenericWorker) Ctx() *WorkerContext {
-  return self.ctx
-}
-
-func (self *GenericWorker) Interval() int {
-  return self.IntervalSlot
-}
-
-func (self *GenericWorker) QueueName() string {
-  return self.QueueNameStr
-}
-
-func (self *GenericWorker) DebugLog() *stf.DebugLog {
-  return self.Ctx().DebugLog()
-}
-
-func (self *GenericWorker) Debugf (format string, args ...interface {}) {
-  if dl := self.DebugLog(); dl != nil {
-    dl.Printf(format, args...)
+func NewWorkerContext () *WorkerContext {
+  rand.Seed(time.Now().UTC().UnixNano())
+  home := stf.GetHome()
+  ctx := &WorkerContext{
+    stf.GlobalContext {
+      HomeStr: home,
+    },
+    nil,
   }
+
+  cfg, err  := ctx.LoadConfig()
+  if err != nil {
+    return nil
+  }
+
+  ctx.ConfigPtr = cfg
+  ctx.NumQueueDBCount = len(cfg.QueueDBList)
+  ctx.QueueDBPtrList = make([]*sql.DB, ctx.NumQueueDBCount)
+
+  if cfg.Global.Debug {
+    ctx.DebugLogPtr = stf.NewDebugLog()
+    ctx.DebugLogPtr.Prefix = "GLOBAL"
+  }
+  return ctx
 }
 
-func (self *Worker) Run() {
-  defer self.Finalizer()
+func GenericWorkerJobReceiver(handler WorkerHandler, w *sync.WaitGroup) {
+  defer w.Done()
+
+  jobChan := handler.GetJobChannel()
+  ctrlChan := handler.GetControlChannel()
+  ticker := time.Tick(1 * time.Second)
   loop := true
-  h := self.Handler
   for loop {
     select {
-    case cmd := <-self.CommandChan:
-      log.Printf("Received command %+v", cmd)
-      switch cmd.Type {
-      case WORKER_STOP:
-        // Bail out of this loop
-        loop = false
-        continue
-      default:
-        log.Printf("Unknown command type = %d. Ignoring", cmd.Type)
-      }
-    case job := <-self.JobChan:
-      h.Work(job)
-    }
-
-    if loop {
-      // Wait for it...
-      if interval := h.Interval(); interval > 0 {
-        // Randomize sleep time
-        d := time.Duration(rand.Int63n(int64(interval) * int64(time.Second)))
-        time.Sleep(d)
-      }
+    case job := <-jobChan:
+      handler.Work(job)
+    case <-ctrlChan:
+      loop = false
+      break
+    case <-ticker:
+      // no op. This effectively does "sleep unless there's nothing
+      // better to do"
     }
   }
-
-  log.Printf("RunWorker done")
 }
+
 

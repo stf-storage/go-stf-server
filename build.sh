@@ -27,9 +27,9 @@ for dep in $DEPS; do
   done
 done
 
-for executable in worker worker_unit storage dispatcher; do
+for executable in worker worker_repair_object worker_delete_object dispatcher storage; do
   echo "Building bin/$executable"
-  go build -a -o bin/$executable src/cli_$executable.go
+  go build -a -o bin/$executable src/cli/$executable.go
 done
 
 echo "Build done"

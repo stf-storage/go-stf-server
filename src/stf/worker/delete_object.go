@@ -6,15 +6,15 @@ import (
   "sync"
 )
 
-type RepairObjectWorker GenericWorker
+type DeleteObjectWorker GenericWorker
 
-func NewRepairObjectWorker(
+func NewDeleteObjectWorker(
   w *sync.WaitGroup,
   jobChan chan *stf.WorkerArg,
 ) chan bool {
 
   ctrlChan := make(chan bool)
-  worker := &RepairObjectWorker {
+  worker := &DeleteObjectWorker {
     // This is a DUMMY! DUMMY! I tell you it's a DUMMY!
     NewWorkerContext(),
     ctrlChan,
@@ -24,20 +24,20 @@ func NewRepairObjectWorker(
   return ctrlChan
 }
 
-func (self *RepairObjectWorker) GetJobChannel() JobChannel {
+func (self *DeleteObjectWorker) GetJobChannel() JobChannel {
   return self.JobChan
 }
 
-func (self *RepairObjectWorker) GetControlChannel() ControlChannel {
+func (self *DeleteObjectWorker) GetControlChannel() ControlChannel {
   return self.ControlChan
 }
 
-func (self *RepairObjectWorker) Start(w *sync.WaitGroup) {
+func (self *DeleteObjectWorker) Start(w *sync.WaitGroup) {
   w.Add(1)
   go GenericWorkerJobReceiver(self, w)
 }
 
-func (self *RepairObjectWorker) Work(arg *stf.WorkerArg) {
+func (self *DeleteObjectWorker) Work(arg *stf.WorkerArg) {
   objectId, err := strconv.ParseUint(arg.Arg, 10, 64)
   if err != nil {
     return
@@ -52,12 +52,13 @@ func (self *RepairObjectWorker) Work(arg *stf.WorkerArg) {
   }
   defer closer()
 
-  objectApi := loopCtx.ObjectApi()
-  err = objectApi.Repair(objectId)
+  entityApi := loopCtx.EntityApi()
+  err = entityApi.RemoveForDeletedObjectId(objectId)
   if err != nil {
-    ctx.Debugf("Failed to repair %d: %s", objectId, err)
+    ctx.Debugf("Failed to delete entities for object %d: %s", objectId, err)
   } else {
     loopCtx.TxnCommit()
-    loopCtx.Debugf("Repaired object %d", objectId)
+    loopCtx.Debugf("Deleted entities for object %d", objectId)
   }
 }
+

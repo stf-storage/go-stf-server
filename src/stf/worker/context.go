@@ -105,6 +105,13 @@ func (self *WorkerLoopContext) EntityApi() *stf.EntityApi {
   return self.EntityApiPtr
 }
 
+func (self *WorkerLoopContext) DeletedObjectApi() *stf.DeletedObjectApi {
+  if self.DeletedObjectApiPtr == nil {
+    self.DeletedObjectApiPtr = stf.NewDeletedObjectApi(self)
+  }
+  return self.DeletedObjectApiPtr
+}
+
 func (self *WorkerLoopContext) ObjectApi() *stf.ObjectApi {
   if self.ObjectApiPtr == nil {
     self.ObjectApiPtr = stf.NewObjectApi(self)

@@ -13,6 +13,7 @@ import (
   "time"
 )
 
+type CreateHandlerFunc func(*sync.WaitGroup, chan *stf.WorkerArg) chan bool
 type WorkerController struct {
   Name                string
   Config              *stf.Config
@@ -26,24 +27,30 @@ type WorkerController struct {
   Waiter              *sync.WaitGroup
   MaxWorkers          int
   ActiveWorkers       map[string]chan bool
-  StartWorker         func(*sync.WaitGroup, chan *stf.WorkerArg) chan bool
+  StartWorker         CreateHandlerFunc
 }
 
 var ErrNothingDequeued = errors.New("Could not find any jobs")
-func NewWorkerControllerFromArgv() (*WorkerController) {
+func NewWorkerControllerFromArgv(
+  name string,
+  tablename string,
+  createHandlerFunc CreateHandlerFunc,
+) (*WorkerController) {
   var configfile string
-  var name      string
-  var tablename string
   var timeout   int
   var maxWorkers int
   flag.StringVar(&configfile, "config", "etc/config.gcfg", "The path to config file")
-  flag.StringVar(&name, "name", "", "The worker name")
-  flag.StringVar(&tablename, "tablename", "", "The Q4M table name to wait for jobs")
   flag.IntVar(&timeout, "timeout", 5, "The timeout for each queue_wait() call")
   flag.IntVar(&maxWorkers, "max-workers", 5, "Number of workers")
   flag.Parse()
 
-  return NewWorkerController(name, tablename, timeout, maxWorkers)
+  return NewWorkerController(
+    name,
+    tablename,
+    timeout,
+    maxWorkers,
+    createHandlerFunc,
+  )
 }
 
 func NewWorkerController (
@@ -51,6 +58,7 @@ func NewWorkerController (
   tablename string,
   timeout int,
   maxWorkers int,
+  createHandlerFunc CreateHandlerFunc,
 ) (*WorkerController) {
   home := stf.GetHome()
   cfg, err := stf.LoadConfig(home)
@@ -85,12 +93,11 @@ func NewWorkerController (
 
     &sync.WaitGroup {},
 
-    // XXX DUMMY
     maxWorkers,
 
     map[string]chan bool {},
 
-    NewRepairObjectWorker,
+    createHandlerFunc,
   }
 }
 

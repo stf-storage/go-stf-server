@@ -389,10 +389,10 @@ func (self *EntityApi) Store(
 }
 
 // Proceed with caution!!!! THIS WILL DELETE THE ENTIRE ENTITY SET!
-func (self *EntityApi) DeleteAllForObject(objectId uint64) error {
+func (self *EntityApi) DeleteOrphansForObjectId(objectId uint64) error {
   ctx := self.Ctx()
 
-  closer := ctx.LogMark("[Entity.Delete]")
+  closer := ctx.LogMark("[Entity.DeletedOrphasForObjectId]")
   defer closer()
 
   tx, err := ctx.Txn()
@@ -400,50 +400,26 @@ func (self *EntityApi) DeleteAllForObject(objectId uint64) error {
     return err
   }
 
-  // Find an existing object.internal_name or deleted_object.internal_name
-  var internalName string
-  row := tx.QueryRow("SELECT internal_name FROM object WHERE id = ?", objectId)
-  err = row.Scan(&internalName)
-  if err != nil {
-    row = tx.QueryRow("SELECT internal_name FROM deleted_object WHERE id = ?", objectId)
-    err = row.Scan(&internalName)
-  }
-
-  // if internalName == "", the Object was not found, that means we lost 
-  // the only way to access the actual entity in the storage(s)
-  // Skip the file deletion, and delete the database rows only
-  if internalName != "" {
-    client := &http.Client {}
-    rows, err := tx.Query("SELECT s.uri FROM storage s JOIN entity e ON e.storage_id = s.id WHERE e.object_id = ?", objectId)
-
-    for rows.Next() {
-      var uri string
-      err = rows.Scan(&uri)
-      if err != nil {
-        continue
-      }
-      fullUri := strings.Join([]string { uri, internalName }, "/")
-      req, err := http.NewRequest("DELETE", fullUri, nil)
-      if err != nil {
-        continue
-      }
-
-      res, err := client.Do(req)
-
-      if res.StatusCode != 204 {
-        ctx.Debugf("Delete request for '%s' failed (ignored): %s", fullUri, err)
-        continue
-      }
-    }
-  }
-
-  // We may or may not have deleted the actual file entities, but
-  // in either case once we got here, we just delete the logical
-  // entities here
   _, err = tx.Exec("DELETE FROM entity WHERE object_id = ?", objectId)
+  return err
+}
+
+func (self *EntityApi) RemoveForDeletedObjectId(objectId uint64) error {
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[EntityRemoveForDeletedObjectId]")
+  defer closer()
+
+  // Find existing entities 
+  entities, err := self.LookupForObject(objectId)
   if err != nil {
-    ctx.Debugf("Failed to delete from entity table for object %d: %s", objectId, err)
     return err
+  }
+  for _, e := range entities {
+    err = self.RemoveDeleted(e, true)
+    if err != nil {
+      return err
+    }
   }
 
   return nil
@@ -626,6 +602,22 @@ func (self *EntityApi) Delete (objectId uint64, storageId uint64) error {
 }
 
 func (self *EntityApi) Remove (e *Entity, isRepair bool) error {
+  return self.removeInternal(
+    e,
+    isRepair,
+    false, // useDeletedObject: "no"
+  )
+}
+
+func (self *EntityApi) RemoveDeleted (e *Entity, isRepair bool) error {
+  return self.removeInternal(
+    e,
+    isRepair,
+    true, // useDeletedObject: "yes"
+  )
+}
+
+func (self *EntityApi) removeInternal(e *Entity, isRepair bool, useDeletedObject bool) error {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Entity.Remove]")
@@ -660,12 +652,22 @@ func (self *EntityApi) Remove (e *Entity, isRepair bool) error {
     return errors.New("Storage is not writable")
   }
 
-  o, err := ctx.ObjectApi().Lookup(e.ObjectId)
-  if err != nil {
-    return err
+  var internalName string
+  if useDeletedObject {
+    o, err := ctx.DeletedObjectApi().Lookup(e.ObjectId)
+    if err != nil {
+      return err
+    }
+    internalName = o.InternalName
+  } else {
+    o, err := ctx.ObjectApi().Lookup(e.ObjectId)
+    if err != nil {
+      return err
+    }
+    internalName = o.InternalName
   }
 
-  uri := strings.Join([]string { s.Uri, o.InternalName }, "/")
+  uri := strings.Join([]string { s.Uri, internalName }, "/")
   req, err := http.NewRequest("DELETE", uri, nil)
   client := &http.Client {}
   res, err := client.Do(req)

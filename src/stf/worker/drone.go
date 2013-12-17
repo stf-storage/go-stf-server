@@ -15,7 +15,6 @@ import (
 
 type WorkerUnitDef struct {
   Name            string
-  QueueTableName  string
   Command         *exec.Cmd
 }
 
@@ -45,8 +44,11 @@ func NewDrone(cfg *stf.Config) (*WorkerDrone) {
     make(chan *WorkerUnitDef),
     []*WorkerUnitDef{
       &WorkerUnitDef {
-        "RepairObject",
-        "queue_repair_object",
+        "worker_repair_object",
+        nil,
+      },
+      &WorkerUnitDef {
+        "worker_delete_object",
         nil,
       },
     },
@@ -98,13 +100,12 @@ func (self *WorkerDrone) Start() {
 }
 
 func (self *WorkerDrone) SpawnWorkerUnit (t *WorkerUnitDef) (*exec.Cmd, error) {
-  cmdname := "worker_unit"
-  fullpath, err := exec.LookPath(cmdname)
+  fullpath, err := exec.LookPath(t.Name)
   if err != nil {
     return nil, errors.New(
       fmt.Sprintf(
         "Failed to find absolute path for '%s': %s",
-        cmdname,
+        t.Name,
         err,
       ),
     )
@@ -114,10 +115,6 @@ func (self *WorkerDrone) SpawnWorkerUnit (t *WorkerUnitDef) (*exec.Cmd, error) {
     fullpath,
     "--config",
     self.Config.FileName,
-    "--name",
-    t.Name,
-    "--tablename",
-    t.QueueTableName,
   )
 
   // We need to be able to kill this process at any given

@@ -12,6 +12,7 @@ import (
 
 type ApiHolder interface {
   BucketApi()   *BucketApi
+  DeletedObjectApi()  *DeletedObjectApi
   EntityApi()   *EntityApi
   ObjectApi()   *ObjectApi
   QueueApi()    *QueueApi
@@ -68,6 +69,7 @@ type GlobalContext struct {
 type LocalContext struct {
   BaseContext
   BucketApiPtr         *BucketApi
+  DeletedObjectApiPtr  *DeletedObjectApi
   EntityApiPtr         *EntityApi
   ObjectApiPtr         *ObjectApi
   QueueApiPtr          *QueueApi
@@ -251,6 +253,13 @@ func (self *RequestContext) EntityApi() *EntityApi {
     self.EntityApiPtr = NewEntityApi(self)
   }
   return self.EntityApiPtr
+}
+
+func (self *RequestContext) DeletedObjectApi() *DeletedObjectApi {
+  if self.DeletedObjectApiPtr == nil {
+    self.DeletedObjectApiPtr = NewDeletedObjectApi(self)
+  }
+  return self.DeletedObjectApiPtr
 }
 
 func (self *RequestContext) ObjectApi() *ObjectApi {
