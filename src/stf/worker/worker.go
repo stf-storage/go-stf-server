@@ -80,7 +80,8 @@ func NewWorkerContext () *WorkerContext {
 
 func GenericWorkerJobReceiver(handler WorkerHandler, w *sync.WaitGroup) {
   killedByControl := false
-  ctrlChan        := handler.GetPrivateChannel()
+  privChan        := handler.GetPrivateChannel()
+  ctrlChan        := handler.GetControlChannel()
   id              := handler.GetId()
 
   // If killedbyControl is true, we were exiting because we've been 
@@ -102,7 +103,7 @@ func GenericWorkerJobReceiver(handler WorkerHandler, w *sync.WaitGroup) {
   loop := true
   for loop {
     select {
-    case <-ctrlChan:
+    case <-privChan:
       loop = false
       killedByControl = true
       break
