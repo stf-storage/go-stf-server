@@ -23,6 +23,20 @@ func NewWorkerContext () *WorkerContext {
     },
     nil,
   }
+
+  cfg, err  := ctx.LoadConfig()
+  if err != nil {
+    return nil
+  }
+
+  ctx.ConfigPtr = cfg
+  ctx.NumQueueDBCount = len(cfg.QueueDBList)
+  ctx.QueueDBPtrList = make([]*sql.DB, ctx.NumQueueDBCount)
+
+  if cfg.Global.Debug {
+    ctx.DebugLogPtr = stf.NewDebugLog()
+    ctx.DebugLogPtr.Prefix = "GLOBAL"
+  }
   return ctx
 }
 
