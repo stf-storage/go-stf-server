@@ -1,6 +1,7 @@
 package worker
 
 import (
+  "bufio"
   "errors"
   "flag"
   "fmt"
@@ -116,6 +117,35 @@ func (self *WorkerDrone) SpawnWorkerUnit (t *WorkerUnitDef) (*exec.Cmd, error) {
     "--config",
     self.Config.FileName,
   )
+
+  // We want the output from our child processes, too!
+  stderrpipe, err := cmd.StderrPipe()
+  if err != nil {
+    return nil, err
+  }
+  stdoutpipe, err := cmd.StdoutPipe()
+  if err != nil {
+    return nil, err
+  }
+  pipes := []struct {
+    Out *os.File
+    Rdr *bufio.Reader
+  } {
+    { os.Stdout, bufio.NewReader(stdoutpipe) },
+    { os.Stderr, bufio.NewReader(stderrpipe) },
+  }
+
+  for _, p := range pipes {
+    go func(out *os.File, in *bufio.Reader) {
+      for {
+        str, err := in.ReadBytes('\n')
+        out.Write(str)
+        if err != nil {
+          return
+        }
+      }
+    }(p.Out, p.Rdr)
+  }
 
   // We need to be able to kill this process at any given
   // moment in time. Therefore, we need to pass back the
