@@ -2,6 +2,7 @@ package worker
 
 import (
   "database/sql"
+  "log"
   "math/rand"
   "stf"
   "sync"
@@ -9,27 +10,44 @@ import (
 )
 
 const (
-  WORKER_STOP    = 0
+  WORKER_STOP   = 0
+  WORKER_EXITED = 1
 )
 
-type WorkerCommand struct {
-  Type int
+type WorkerCommand interface {
+  GetType() int
 }
 
-var CmdStop = &WorkerCommand { WORKER_STOP }
+type CmdGeneric struct { Type int }
+type Cmd1Arg    struct {
+  *CmdGeneric
+  Arg string
+}
+
+func (self *CmdGeneric) GetType() int { return self.Type }
+
+func CmdStop() WorkerCommand {
+  return &CmdGeneric { WORKER_STOP }
+}
+func CmdWorkerExited(id string) WorkerCommand {
+  return &Cmd1Arg { &CmdGeneric { WORKER_EXITED }, id }
+}
 
 type JobChannel     chan *stf.WorkerArg
-type ControlChannel chan bool
 type GenericWorker struct {
+  Id            string
   Ctx           *WorkerContext
-  ControlChan   ControlChannel
+  ControlChan   WorkerCommChannel
+  PrivateChan   WorkerCommChannel
   JobChan       JobChannel
 }
 
 type WorkerHandler interface {
   Work(arg *stf.WorkerArg)
+  GetId() string
   GetJobChannel()     JobChannel
-  GetControlChannel() ControlChannel
+  GetPrivateChannel() WorkerCommChannel
+  GetControlChannel() WorkerCommChannel
 }
 
 func NewWorkerContext () *WorkerContext {
@@ -59,24 +77,47 @@ func NewWorkerContext () *WorkerContext {
 }
 
 func GenericWorkerJobReceiver(handler WorkerHandler, w *sync.WaitGroup) {
+  killedByControl := false
+  ctrlChan        := handler.GetPrivateChannel()
+  id              := handler.GetId()
+
+  // If killedbyControl is true, we were exiting because we've been 
+  // asked to do so. In that case we don't notify our exit
+  defer func() {
+    if ! killedByControl {
+      // we weren't killed explicitly, send via our control channel
+      // that we've exited for whatever reason
+      ctrlChan <- CmdWorkerExited(id)
+    }
+  }()
+
   defer w.Done()
 
   jobChan := handler.GetJobChannel()
-  ctrlChan := handler.GetControlChannel()
+  jobCount := 0
+  maxJobs := 1000
   ticker := time.Tick(1 * time.Second)
   loop := true
   for loop {
     select {
-    case job := <-jobChan:
-      handler.Work(job)
     case <-ctrlChan:
       loop = false
+      killedByControl = true
+      break
+    case job := <-jobChan:
+      jobCount++
+      handler.Work(job)
       break
     case <-ticker:
       // no op. This effectively does "sleep unless there's nothing
       // better to do"
     }
+
+    if jobCount >= maxJobs {
+      loop = false
+    }
   }
+
 }
 
 

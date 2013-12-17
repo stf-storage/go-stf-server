@@ -8,27 +8,33 @@ import (
 
 type RepairObjectWorker GenericWorker
 
-func NewRepairObjectWorker(
-  w *sync.WaitGroup,
-  jobChan chan *stf.WorkerArg,
-) chan bool {
-
-  ctrlChan := make(chan bool)
+func NewRepairObjectWorker(args *HandlerArgs) WorkerCommChannel {
+  // This is the channel used to talk to this specific worker
+  privateChan := make(WorkerCommChannel, 1)
   worker := &RepairObjectWorker {
-    // This is a DUMMY! DUMMY! I tell you it's a DUMMY!
+    args.Id,
     NewWorkerContext(),
-    ctrlChan,
-    jobChan,
+    args.ControlChan,
+    privateChan,
+    args.JobChan,
   }
-  worker.Start(w)
-  return ctrlChan
+  worker.Start(args.Waiter)
+  return privateChan
+}
+
+func (self *RepairObjectWorker) GetId() string {
+  return self.Id
 }
 
 func (self *RepairObjectWorker) GetJobChannel() JobChannel {
   return self.JobChan
 }
 
-func (self *RepairObjectWorker) GetControlChannel() ControlChannel {
+func (self *RepairObjectWorker) GetPrivateChannel() WorkerCommChannel {
+  return self.PrivateChan
+}
+
+func (self *RepairObjectWorker) GetControlChannel() WorkerCommChannel {
   return self.ControlChan
 }
 

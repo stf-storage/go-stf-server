@@ -8,27 +8,32 @@ import (
 
 type DeleteObjectWorker GenericWorker
 
-func NewDeleteObjectWorker(
-  w *sync.WaitGroup,
-  jobChan chan *stf.WorkerArg,
-) chan bool {
-
-  ctrlChan := make(chan bool)
+func NewDeleteObjectWorker(args *HandlerArgs) WorkerCommChannel {
+  privateChan := make(WorkerCommChannel)
   worker := &DeleteObjectWorker {
-    // This is a DUMMY! DUMMY! I tell you it's a DUMMY!
+    args.Id,
     NewWorkerContext(),
-    ctrlChan,
-    jobChan,
+    args.ControlChan,
+    privateChan,
+    args.JobChan,
   }
-  worker.Start(w)
-  return ctrlChan
+  worker.Start(args.Waiter)
+  return privateChan
+}
+
+func (self *DeleteObjectWorker) GetId() string {
+  return self.Id
 }
 
 func (self *DeleteObjectWorker) GetJobChannel() JobChannel {
   return self.JobChan
 }
 
-func (self *DeleteObjectWorker) GetControlChannel() ControlChannel {
+func (self *DeleteObjectWorker) GetPrivateChannel() WorkerCommChannel {
+  return self.PrivateChan
+}
+
+func (self *DeleteObjectWorker) GetControlChannel() WorkerCommChannel {
   return self.ControlChan
 }
 

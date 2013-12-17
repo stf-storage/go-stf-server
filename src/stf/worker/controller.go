@@ -13,21 +13,31 @@ import (
   "time"
 )
 
-type CreateHandlerFunc func(*sync.WaitGroup, chan *stf.WorkerArg) chan bool
+type WorkerCommChannel chan WorkerCommand
+type HandlerArgs struct {
+  Id      string
+  JobChan chan *stf.WorkerArg
+  ControlChan WorkerCommChannel
+  Waiter  *sync.WaitGroup
+}
+
+type CreateHandlerFunc func(*HandlerArgs) WorkerCommChannel
 type WorkerController struct {
   Name                string
   Config              *stf.Config
   JobChan             chan *stf.WorkerArg
   FetcherControlChan  chan bool
   SigChan             chan os.Signal
-  WorkerChan          chan string
+  // channel to read-in stream of commands from workers
+  WorkerChan          WorkerCommChannel
   CurrentQueueIdx     int
   QueueTableName      string
   QueueTimeout        int
   Waiter              *sync.WaitGroup
   MaxWorkers          int
-  ActiveWorkers       map[string]chan bool
-  StartWorker         CreateHandlerFunc
+  // channels to send worker-specific commands
+  ActiveWorkers       map[string]WorkerCommChannel
+  CreateHandler       CreateHandlerFunc
 }
 
 var ErrNothingDequeued = errors.New("Could not find any jobs")
@@ -81,7 +91,7 @@ func NewWorkerController (
     make(chan os.Signal, 1),
 
     // WorkerChan, notifications from worker(s) that they have "exited"
-    make(chan string),
+    make(WorkerCommChannel, 1),
 
     0,
 
@@ -95,7 +105,7 @@ func NewWorkerController (
 
     maxWorkers,
 
-    map[string]chan bool {},
+    map[string]WorkerCommChannel {},
 
     createHandlerFunc,
   }
@@ -167,7 +177,7 @@ func (self *WorkerController) StartFetcherThread() {
 func (self *WorkerController) StartControllerThread () {
 
   self.Waiter.Add(1)
-  go func(w *sync.WaitGroup, sigChan chan os.Signal, workerChan chan string) {
+  go func(w *sync.WaitGroup, sigChan chan os.Signal, workerChan WorkerCommChannel) {
     defer w.Done()
     defer self.KillAll()
 
@@ -189,8 +199,21 @@ func (self *WorkerController) StartControllerThread () {
           loop = false
         }
         break
-      case <-workerChan:
-        doRespawn = true
+      case cmd := <-workerChan:
+        // One of our workers has sent us something through this channel
+        log.Printf("Received command %v", cmd)
+        switch cmd.GetType() {
+        case WORKER_EXITED:
+          cmdexited, ok := cmd.(Cmd1Arg)
+          if ! ok {
+            log.Printf("Unknown command type:/")
+          } else {
+            doRespawn = true
+            log.Printf("Worker id %s exited, need to replenish", cmdexited.Arg)
+          }
+        default:
+          log.Printf("Unknown command type %d", cmd.GetType())
+        }
       case <-ticker:
       }
 
@@ -224,24 +247,30 @@ func (self *WorkerController) Respawn() {
     return
   }
 
+  createCount := 0
   for i := 0; i < (maxWorkers - curWorkers); i++ {
-    log.Printf("Spawning new worker")
     id := stf.GenerateRandomId(self.Name, 40)
-    c := self.StartWorker(self.Waiter, self.JobChan)
+    args := &HandlerArgs{
+      id,
+      self.JobChan,
+      self.WorkerChan,
+      self.Waiter,
+    }
+    c := self.CreateHandler(args)
     self.ActiveWorkers[id] = c
+    createCount++
   }
+  log.Printf("Created %d new workers", createCount)
 }
 
 func (self *WorkerController) KillAll() {
   // Send the fetcher a termination signal
   log.Printf("KillAll: Sending notice to fetcher")
-  // Closing the channel will cause <-ctrlChan in fetcher to
-  // succeed (http://dave.cheney.net/tag/golang-3)
-  close(self.FetcherControlChan)
+  self.FetcherControlChan <- true
 
   for id, c := range self.ActiveWorkers {
     log.Printf("KillAll: Sending notice to worker %s", id)
-    close(c)
+    c <- CmdStop()
   }
 }
 
@@ -256,7 +285,6 @@ func (self *WorkerController) Dequeue() (*stf.WorkerArg, error) {
   max := len(qdbConfig)
   var arg stf.WorkerArg
   for i := 0; i < max; i++ {
-log.Printf("Checking DB %d", i)
     idx := self.CurrentQueueIdx
     self.CurrentQueueIdx++
     if self.CurrentQueueIdx >= max {
