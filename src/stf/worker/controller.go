@@ -212,11 +212,12 @@ func (self *WorkerController) StartControllerThread () {
         log.Printf("Received command %v", cmd)
         switch cmd.GetType() {
         case WORKER_EXITED:
-          cmdexited, ok := cmd.(Cmd1Arg)
+          cmdexited, ok := cmd.(*Cmd1Arg)
           if ! ok {
             log.Printf("Unknown command type:/")
           } else {
             doRespawn = true
+            delete(self.ActiveWorkers, cmdexited.Arg)
             log.Printf("Worker id %s exited, need to replenish", cmdexited.Arg)
           }
         default:
