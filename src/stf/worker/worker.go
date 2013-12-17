@@ -117,6 +117,7 @@ func GenericWorkerJobReceiver(handler WorkerHandler, w *sync.WaitGroup) {
     }
   }
 
+  log.Printf("Worker %s exiting", id)
 }
 
 
