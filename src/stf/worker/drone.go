@@ -25,7 +25,9 @@ const (
 
 type WorkerUnitDef struct {
   Name            string
+  CommandName     string
   Command         *exec.Cmd
+  TotalInstances  int // total instances in the entire system
 }
 
 type WorkerDrone struct {
@@ -86,12 +88,16 @@ func NewDrone(cfg *stf.Config) (*WorkerDrone) {
     make(chan *WorkerUnitDef),
     []*WorkerUnitDef{
       &WorkerUnitDef {
+        "RepairObject",
         "worker_repair_object",
         nil,
+        0,
       },
       &WorkerUnitDef {
+        "DeleteObject",
         "worker_delete_object",
         nil,
+        0,
       },
     },
     true,
@@ -103,8 +109,17 @@ func NewDrone(cfg *stf.Config) (*WorkerDrone) {
   }
 }
 
+func (self *WorkerDrone) Unregister () {
+  log.Printf("Unregister %s", self.Id)
+  db := self.MainDB
+  db.Exec(`DELETE FROM worker_election WHERE drone_id = ?`, self.Id)
+  db.Exec(`DELETE FROM worker_instances WHERE drone_id = ?`, self.Id)
+}
+
 func (self *WorkerDrone) Start() {
+  defer self.BroadcastReload()
   defer self.KillWorkerUnits()
+  defer self.Unregister()
 
   for _, t := range self.WorkerUnitDefs {
     cmd, err := self.SpawnWorkerUnit(t)
@@ -149,6 +164,10 @@ func (self *WorkerDrone) Start() {
     default:
       self.CheckState()
       self.ElectLeader()
+      self.Reload()
+      if self.IsLeader {
+        self.Rebalance()
+      }
 
       // When we fall here we know that we neither got a signal
       // nor an exit notice. sleep and wait
@@ -173,6 +192,16 @@ func (self *WorkerDrone) Announce() {
   }
 }
 
+func (self *WorkerDrone) DeleteExpired() {
+  log.Printf("Deleting expired drones")
+  db := self.MainDB
+
+  db.Exec(
+    `DELETE FROM worker_election WHERE expires_at < UNIX_TIMESTAMP() AND drone_id != ?`,
+    self.Id,
+  )
+}
+
 func (self *WorkerDrone) BroadcastReload() {
   log.Printf("Broadcast reload")
 
@@ -191,12 +220,21 @@ func (self *WorkerDrone) ShouldHoldElection() bool {
   return self.State & BIT_ELECTION > 0
 }
 
+func (self *WorkerDrone) ShouldRebalance() bool {
+  return self.State & BIT_BALANCE > 0
+}
+
+func (self *WorkerDrone) ShouldReload() bool {
+  return self.State & BIT_RELOAD > 0
+}
+
 func (self *WorkerDrone) CheckState () {
   self.State = 0
-
   if ! self.ShouldCheckState() {
     return
   }
+
+  self.DeleteExpired()
 
   self.NextCheckState = time.Now().Add(stf.RandomDuration(30))
   cache := self.Cache
@@ -266,18 +304,171 @@ func (self *WorkerDrone) ElectLeader() {
   }
 
   log.Printf("Election: elected %s as leader", leaderId)
-  self.IsLeader = leaderId == self.Id
+  self.IsLeader = (leaderId == self.Id)
   if self.IsLeader {
     log.Printf("Elected myself as the leader!")
   }
 
   t := time.Now()
   self.LastElection = &t
-log.Printf("Updated lastElection: %v", self.LastElection)
+}
+
+func (self *WorkerDrone) LoadDroneIds() []string {
+  db := self.MainDB
+  rows, err := db.Query(`SELECT drone_id FROM worker_election ORDER BY rand()`)
+  if err != nil {
+    return nil
+  }
+
+  drones := []string {}
+  for rows.Next() {
+    var droneId string
+    err = rows.Scan(&droneId)
+    if err != nil {
+      return nil
+    }
+    drones = append(drones, droneId)
+  }
+
+  return drones
+}
+
+func (self *WorkerDrone) Rebalance () {
+  if ! self.ShouldRebalance() {
+    return
+  }
+
+  log.Printf("Rebalacing workers")
+
+  db := self.MainDB
+
+  drones := self.LoadDroneIds()
+  if drones == nil {
+    log.Printf("No drones?!")
+    return
+  }
+
+  droneCount := len(drones)
+
+  /* Unlike the original Perl version, this version knows which
+   * type of workers it can handle, so we just use this compiled
+   * list of worker types
+   */
+  for _, wu := range self.WorkerUnitDefs {
+    /* This is the number of instances that we want in the
+     * entire system, which is fetched from the database
+     * when Reload() is called
+     */
+    var instancesPerDrone int
+    switch {
+    case wu.TotalInstances <= 0 : // safety net
+      instancesPerDrone = 0
+    case wu.TotalInstances == 1 : // no need to calculate
+      instancesPerDrone = 1
+    default:
+      instancesPerDrone = wu.TotalInstances / droneCount
+      if instancesPerDrone < 1 {
+        instancesPerDrone = 1
+      }
+    }
+
+    log.Printf(
+      "Total instances for worker %s is %d (%d per drone)",
+      wu.Name,
+      wu.TotalInstances,
+      instancesPerDrone,
+    )
+
+    // Keep distributing 
+    remaining := wu.TotalInstances
+    for i, droneId := range drones {
+      var actual int
+      switch {
+      case remaining < instancesPerDrone:
+        actual = remaining
+      case i == droneCount - 1: // last one
+        actual = remaining
+      default:
+        actual = instancesPerDrone
+      }
+
+      log.Printf(
+        "Balance: drone = %s, worker = %s, instances = %d",
+        droneId,
+        wu.Name,
+        actual,
+      )
+
+      db.Exec(
+        `INSERT INTO worker_instances (drone_id, worker_type, instances)
+          VALUES (?, ?, ?)
+          ON DUPLICATE KEY UPDATE instances = VALUES(instances)`,
+        droneId,
+        wu.Name,
+        actual,
+      )
+
+      remaining -= actual
+    }
+  }
+
+  self.State |= BIT_RELOAD
+  self.Reload()
+  self.BroadcastReload()
+
+  t := time.Now()
+  self.LastBalance = &t
+}
+
+func (self *WorkerDrone) Reload() {
+  if ! self.ShouldReload() {
+    return
+  }
+
+  log.Printf("Reloading settings from DB")
+
+  db := self.MainDB
+  rows, err := db.Query(`SELECT varname, varvalue FROM config WHERE varname LIKE 'stf.drone.%.instances'`)
+  if err != nil {
+    log.Printf("Error reloading: %s", err)
+    return
+  }
+
+  instanceConfig := map[string]string {}
+  for rows.Next() {
+    var name string
+    var value string
+    err = rows.Scan(&name, &value)
+    if err != nil {
+      log.Printf("Error reloading: %s", err)
+      return
+    }
+
+    // Strip prefix/postfix
+    name = strings.TrimPrefix(name, "stf.drone.")
+    name = strings.TrimSuffix(name, ".instances")
+
+    instanceConfig[name] = value
+  }
+
+  for _, wu := range self.WorkerUnitDefs {
+    value, ok := instanceConfig[wu.Name]
+    if ok {
+      tmp, err := strconv.ParseInt(value, 10, 64)
+      if err != nil {
+        log.Printf("Error parsing config: %s", err)
+      } else {
+        wu.TotalInstances = int(tmp)
+      }
+    }
+  }
+
+  t := time.Now()
+  self.LastReload = &t
 }
 
 func (self *WorkerDrone) SpawnWorkerUnit (t *WorkerUnitDef) (*exec.Cmd, error) {
-  fullpath, err := exec.LookPath(t.Name)
+  fullpath, err := exec.LookPath(t.CommandName)
   if err != nil {
     return nil, errors.New(
       fmt.Sprintf(
@@ -292,6 +483,8 @@ func (self *WorkerDrone) SpawnWorkerUnit (t *WorkerUnitDef) (*exec.Cmd, error) {
     fullpath,
     "--config",
     self.Config.FileName,
+    "--drone",
+    self.Id,
   )
 
   // We want the output from our child processes, too!
@@ -314,10 +507,10 @@ func (self *WorkerDrone) SpawnWorkerUnit (t *WorkerUnitDef) (*exec.Cmd, error) {
   for _, p := range pipes {
     go func(out *os.File, in *bufio.Reader) {
       for {
-        str, err := in.ReadBytes('\n')
-        out.Write(str)
-        if err != nil {
-          return
+        str, _ := in.ReadBytes('\n')
+        if str != nil {
+          out.Write(str)
+          out.Sync()
         }
       }
     }(p.Out, p.Rdr)

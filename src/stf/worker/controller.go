@@ -1,6 +1,7 @@
 package worker
 
 import (
+  "database/sql"
   "errors"
   "flag"
   "fmt"
@@ -26,12 +27,14 @@ type CreateHandlerFunc func(*HandlerArgs) WorkerCommChannel
 type WorkerController struct {
   Name                string
   Config              *stf.Config
+  MainDB              *sql.DB
   JobChan             chan *stf.WorkerArg
   FetcherControlChan  chan bool
   SigChan             chan os.Signal
   // channel to read-in stream of commands from workers
   WorkerChan          WorkerCommChannel
   CurrentQueueIdx     int
+  DroneId             string
   QueueTableName      string
   QueueTimeout        int
   Waiter              *sync.WaitGroup
@@ -49,10 +52,12 @@ func NewWorkerControllerFromArgv(
   createHandlerFunc CreateHandlerFunc,
 ) (*WorkerController) {
   var configfile string
+  var droneId string
   var timeout   int
   var maxWorkers int
   var maxJobsPerWorker int
   flag.StringVar(&configfile, "config", "etc/config.gcfg", "The path to config file")
+  flag.StringVar(&droneId, "drone", "", "drone ID that this belongs to")
   flag.IntVar(&timeout, "timeout", 5, "The timeout for each queue_wait() call")
   flag.IntVar(&maxWorkers, "max-workers", 5, "Number of workers")
   flag.IntVar(&maxJobsPerWorker, "max-jobs-per-worker", 1000, "Number of jobs that each goroutine processes until exiting")
@@ -60,6 +65,7 @@ func NewWorkerControllerFromArgv(
 
   return NewWorkerController(
     name,
+    droneId,
     tablename,
     timeout,
     maxWorkers,
@@ -70,6 +76,7 @@ func NewWorkerControllerFromArgv(
 
 func NewWorkerController (
   name string,
+  droneId string,
   tablename string,
   timeout int,
   maxWorkers int,
@@ -82,10 +89,17 @@ func NewWorkerController (
     log.Fatalf("Failed to config: %s", err)
   }
 
+  db, err := stf.ConnectDB(&cfg.MainDB)
+  if err != nil {
+    panic(fmt.Sprintf("Could not connect to main database: %s", err))
+  }
+
   return &WorkerController {
     name,
 
     cfg,
+
+    db,
 
     // JobChan, used to pass jobs from fetcher to worker(s)
     make(chan *stf.WorkerArg),
@@ -100,6 +114,9 @@ func NewWorkerController (
     make(WorkerCommChannel, 1),
 
     0,
+
+    // Name of the drone that this belongs to
+    droneId,
 
     // This is the name of the queue to listen
     tablename,
@@ -235,6 +252,23 @@ func (self *WorkerController) StartControllerThread () {
 }
 
 func (self *WorkerController) ReloadConfig() {
+  // Connect to the database and find out how many workers
+  // we're supposed to spawn
+  db := self.MainDB
+
+  row := db.QueryRow(
+    `SELECT instances FROM worker_instances WHERE drone_id = ?`,
+    self.DroneId,
+  )
+
+  var count int
+  err := row.Scan(&count)
+  if err != nil {
+    panic(fmt.Sprintf("Failed to reload config %s", err))
+  }
+
+  log.Printf("Changing MaxWorkers from %d -> %d", self.MaxWorkers, count)
+  self.MaxWorkers = count
 }
 
 func (self *WorkerController) Respawn() {
