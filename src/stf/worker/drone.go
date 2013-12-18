@@ -17,6 +17,12 @@ import (
   "time"
 )
 
+const (
+  BIT_ELECTION  = 1
+  BIT_BALANCE   = 2
+  BIT_RELOAD    = 4
+)
+
 type WorkerUnitDef struct {
   Name            string
   Command         *exec.Cmd
@@ -29,6 +35,12 @@ type WorkerDrone struct {
   MainDB          *sql.DB
   WorkerExitChan  chan *WorkerUnitDef
   WorkerUnitDefs  []*WorkerUnitDef
+  IsLeader        bool
+  State           uint8
+  LastElection    *time.Time
+  LastBalance     *time.Time
+  LastReload      *time.Time
+  NextCheckState  time.Time
 }
 
 func NewDroneFromArgv () (*WorkerDrone) {
@@ -82,6 +94,12 @@ func NewDrone(cfg *stf.Config) (*WorkerDrone) {
         nil,
       },
     },
+    true,
+    0,
+    nil,
+    nil,
+    nil,
+    time.Now(),
   }
 }
 
@@ -129,6 +147,9 @@ func (self *WorkerDrone) Start() {
       self.SpawnWorkerUnit(t)
       break //
     default:
+      self.CheckState()
+      self.ElectLeader()
+
       // When we fall here we know that we neither got a signal
       // nor an exit notice. sleep and wait
       stf.RandomSleep()
@@ -156,10 +177,103 @@ func (self *WorkerDrone) BroadcastReload() {
   log.Printf("Broadcast reload")
 
   cache := self.Cache
-  next := time.Unix(0, 0)
-  cache.Set("stf.drone.reload",   next, 0)
-  cache.Set("stf.drone.election", next, 0)
-  cache.Set("stf.drone.balance",  next, 0)
+  next := time.Now().Add(5 * time.Second)
+  cache.Set("stf.drone.reload",   &next, 0)
+  cache.Set("stf.drone.election", &next, 0)
+  cache.Set("stf.drone.balance",  &next, 0)
+}
+
+func (self *WorkerDrone) ShouldCheckState() bool {
+  return self.NextCheckState.Before(time.Now())
+}
+
+func (self *WorkerDrone) ShouldHoldElection() bool {
+  return self.State & BIT_ELECTION > 0
+}
+
+func (self *WorkerDrone) CheckState () {
+  self.State = 0
+
+  if ! self.ShouldCheckState() {
+    return
+  }
+
+  self.NextCheckState = time.Now().Add(stf.RandomDuration(30))
+  cache := self.Cache
+
+  keys := []string {
+    "stf.drone.reload",
+    "stf.drone.election",
+    "stf.drone.balance",
+  }
+  cached, err := cache.GetMulti(keys, func() interface {} { return &time.Time{} })
+  if err != nil {
+    log.Printf(fmt.Sprintf("Failed to fetch from cache: %s", err))
+    return
+  }
+
+  var st uint8 = 0
+
+  var tmp interface {}
+  var ok  bool
+  var whenToReload  *time.Time
+  var whenToElect   *time.Time
+  var whenToBalance *time.Time
+
+  if tmp, ok = cached[keys[0]]; ok {
+    whenToReload = tmp.(*time.Time)
+  }
+
+  if whenToReload == nil || self.LastReload == nil || self.LastReload.Before(*whenToReload) {
+    st |= BIT_RELOAD
+  }
+
+  if tmp, ok = cached[keys[1]]; ok {
+    whenToElect = tmp.(*time.Time)
+  }
+
+  if whenToElect == nil || self.LastElection == nil || self.LastElection.Before(*whenToElect) {
+    st |= BIT_ELECTION
+  }
+
+  if tmp, ok = cached[keys[2]]; ok {
+    whenToBalance = tmp.(*time.Time)
+  }
+
+  if whenToBalance == nil || self.LastBalance == nil || self.LastBalance.Before(*whenToBalance) {
+    st |= BIT_BALANCE
+  }
+
+  self.State = st
+  log.Printf("Next check state at %s", self.NextCheckState)
+}
+
+func (self *WorkerDrone) ElectLeader() {
+  if ! self.ShouldHoldElection() {
+    return
+  }
+
+  log.Printf("Holding leader election")
+
+  db := self.MainDB
+
+  var leaderId string
+  row := db.QueryRow(`SELECT drone_id FROM worker_election ORDER BY id ASC LIMIT 1`)
+  err := row.Scan(&leaderId)
+  if err != nil {
+    // Fuck. I have no clue what's going on
+    panic(fmt.Sprintf("Failed to elect leader: %s", err))
+  }
+
+  log.Printf("Election: elected %s as leader", leaderId)
+  self.IsLeader = leaderId == self.Id
+  if self.IsLeader {
+    log.Printf("Elected myself as the leader!")
+  }
+
+  t := time.Now()
+  self.LastElection = &t
+log.Printf("Updated lastElection: %v", self.LastElection)
 }
 
 func (self *WorkerDrone) SpawnWorkerUnit (t *WorkerUnitDef) (*exec.Cmd, error) {

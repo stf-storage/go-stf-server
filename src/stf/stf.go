@@ -85,10 +85,13 @@ func ConnectDB(config *DatabaseConfig) (*sql.DB, error) {
   return db, nil
 }
 
+func RandomDuration(maxSeconds int64) time.Duration {
+  return time.Duration(rand.Int63n(maxSeconds * int64(time.Second)))
+}
+
 // Sleeps for random amount of time 1 > t > 0, returns the slept duration
 func RandomSleep () time.Duration {
-  max := int64(time.Second)
-  dur := time.Duration(rand.Int63n(max))
+  dur := time.Duration(RandomDuration(1))
   time.Sleep(dur)
   return dur
 }
