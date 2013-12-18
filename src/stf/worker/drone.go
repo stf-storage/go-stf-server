@@ -119,9 +119,9 @@ func (self *WorkerDrone) Unregister () {
 }
 
 func (self *WorkerDrone) Start() {
-  defer self.BroadcastReload()
-  defer self.KillWorkerUnits()
-  defer self.Unregister()
+  defer self.Cleanup()
+
+  log.SetPrefix(fmt.Sprintf("[Drone %d] ", os.Getpid()))
 
   for _, t := range self.WorkerUnitDefs {
     cmd, err := self.SpawnWorkerUnit(t)
@@ -179,6 +179,7 @@ func (self *WorkerDrone) Start() {
       stf.RandomSleep()
     }
   }
+  self.Loop = false // sanity
 }
 
 func (self *WorkerDrone) Announce() {
@@ -320,7 +321,7 @@ func (self *WorkerDrone) ElectLeader() {
 
 func (self *WorkerDrone) LoadDroneIds() []string {
   db := self.MainDB
-  rows, err := db.Query(`SELECT drone_id FROM worker_election ORDER BY rand()`)
+  rows, err := db.Query(`SELECT drone_id FROM worker_election ORDER BY id DESC`)
   if err != nil {
     return nil
   }
@@ -522,10 +523,14 @@ func (self *WorkerDrone) SpawnWorkerUnit (t *WorkerUnitDef) (*exec.Cmd, error) {
   for _, p := range pipes {
     go func(out *os.File, in *bufio.Reader) {
       for {
-        str, _ := in.ReadBytes('\n')
+        str, err := in.ReadBytes('\n')
         if str != nil {
           out.Write(str)
           out.Sync()
+        }
+
+        if err != nil {
+          break
         }
       }
     }(p.Out, p.Rdr)
@@ -547,6 +552,7 @@ func (self *WorkerDrone) SpawnWorkerUnit (t *WorkerUnitDef) (*exec.Cmd, error) {
     t.Command = nil
     log.Printf("Exit: %v", cmd.Args)
     if self.Loop {
+      log.Printf("We're still in active loop, sending notification to respawn")
       exitChan <- t
     }
   }()
@@ -556,8 +562,15 @@ func (self *WorkerDrone) SpawnWorkerUnit (t *WorkerUnitDef) (*exec.Cmd, error) {
 
 func (self *WorkerDrone) KillWorkerUnits () {
   for _, t := range self.WorkerUnitDefs {
+    log.Printf("Killing process for %s", t.Name)
     if cmd := t.Command; cmd != nil {
       cmd.Process.Kill()
     }
   }
+}
+
+func (self *WorkerDrone) Cleanup() {
+  self.BroadcastReload()
+  self.KillWorkerUnits()
+  self.Unregister()
 }

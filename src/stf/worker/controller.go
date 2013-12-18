@@ -59,7 +59,7 @@ func NewWorkerControllerFromArgv(
   flag.StringVar(&configfile, "config", "etc/config.gcfg", "The path to config file")
   flag.StringVar(&droneId, "drone", "", "drone ID that this belongs to")
   flag.IntVar(&timeout, "timeout", 5, "The timeout for each queue_wait() call")
-  flag.IntVar(&maxWorkers, "max-workers", 5, "Number of workers")
+  flag.IntVar(&maxWorkers, "max-workers", 0, "Number of workers")
   flag.IntVar(&maxJobsPerWorker, "max-jobs-per-worker", 1000, "Number of jobs that each goroutine processes until exiting")
   flag.Parse()
 
@@ -137,6 +137,7 @@ func NewWorkerController (
 }
 
 func (self *WorkerController) Start() {
+  log.SetPrefix(fmt.Sprintf("[%s %d] ", self.Name, os.Getpid()))
   // Handle signals. TERM kills this worker-unit, HUP tells us to
   // reload configuration from the database. The actual handling
   // is done by the controller thread
@@ -252,13 +253,20 @@ func (self *WorkerController) StartControllerThread () {
 }
 
 func (self *WorkerController) ReloadConfig() {
+  log.Printf(
+    "Loading configurations for worker %s drone %s",
+    self.Name,
+    self.DroneId,
+  )
+
   // Connect to the database and find out how many workers
   // we're supposed to spawn
   db := self.MainDB
 
   row := db.QueryRow(
-    `SELECT instances FROM worker_instances WHERE drone_id = ?`,
+    `SELECT instances FROM worker_instances WHERE drone_id = ? AND worker_type = ?`,
     self.DroneId,
+    self.Name,
   )
 
   var count int
@@ -266,12 +274,16 @@ func (self *WorkerController) ReloadConfig() {
 
   if err == sql.ErrNoRows {
     return
-  } else if err != nil {
+  }
+
+  if err != nil {
     panic(fmt.Sprintf("Failed to reload config %s", err))
   }
 
-  log.Printf("Changing MaxWorkers from %d -> %d", self.MaxWorkers, count)
-  self.MaxWorkers = count
+  if self.MaxWorkers != count {
+    log.Printf("Changing MaxWorkers from %d -> %d", self.MaxWorkers, count)
+    self.MaxWorkers = count
+  }
 }
 
 func (self *WorkerController) Respawn() {
@@ -279,14 +291,30 @@ func (self *WorkerController) Respawn() {
 
   curWorkers := len(self.ActiveWorkers)
   maxWorkers := self.MaxWorkers
-  if curWorkers >= maxWorkers {
-    // Nothing to spawn
-    log.Printf("Current number of workers <= Max workers (%d <= %d).", curWorkers, maxWorkers)
+  log.Printf("Current worker status: active = %d, max = %d", curWorkers, maxWorkers)
+
+  if curWorkers == maxWorkers {
+    // No change
     return
   }
 
+  diff := maxWorkers - curWorkers
+
+  if diff < 0 {
+    for id, c := range self.ActiveWorkers {
+      if diff >= 0 {
+        break
+      }
+
+      log.Printf("Killing goroutine '%s'", id)
+      c <- CmdStop()
+      delete(self.ActiveWorkers, id)
+      diff++
+    }
+  }
+
   createCount := 0
-  for i := 0; i < (maxWorkers - curWorkers); i++ {
+  for i := 0; i < diff; i++ {
     id := stf.GenerateRandomId(self.Name, 40)
     args := &HandlerArgs{
       id,
