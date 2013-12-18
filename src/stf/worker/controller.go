@@ -139,9 +139,7 @@ func (self *WorkerController) StartFetcherThread() {
   go func(name string, w *sync.WaitGroup, jobChan chan *stf.WorkerArg, controlChan chan bool) {
     defer w.Done()
 
-    ticker := time.Tick(5 * time.Second)
-
-    skipDequeue := false
+    var skipDequeue <-chan time.Time
     loop := true
     for loop {
       select {
@@ -149,19 +147,14 @@ func (self *WorkerController) StartFetcherThread() {
         log.Printf("Received fetcher termination request. Exiting")
         loop = false
         break
-      case <-ticker:
-        skipDequeue = false
+      case <-skipDequeue:
+        stf.RandomSleep()
       default:
-        // do nothing
+        stf.RandomSleep()
       }
 
       if ! loop {
         break
-      }
-
-      if skipDequeue {
-        time.Sleep( 500 * time.Millisecond )
-        continue
       }
 
       // Go and dequeue
@@ -175,7 +168,7 @@ func (self *WorkerController) StartFetcherThread() {
         // to succeed getting the next one. In that case, go listen to the
         // controlChan, but don't fall into the dequeue clause until the
         // next "tick" arrives
-        skipDequeue = true
+        skipDequeue = time.After(500 * time.Millisecond)
       }
     }
     log.Printf("Fetcher for %s exiting", name)
@@ -188,8 +181,6 @@ func (self *WorkerController) StartControllerThread () {
   go func(w *sync.WaitGroup, sigChan chan os.Signal, workerChan WorkerCommChannel) {
     defer w.Done()
     defer self.KillAll()
-
-    ticker := time.Tick(5 * time.Second)
 
     // Before looping, we need to spawn workers
     self.Respawn()
@@ -224,7 +215,7 @@ func (self *WorkerController) StartControllerThread () {
           log.Printf("Unknown command type %d", cmd.GetType())
         }
       default:
-        <-ticker
+        stf.RandomSleep()
       }
 
       if ! loop {

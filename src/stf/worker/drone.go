@@ -11,7 +11,6 @@ import (
   "os/signal"
   "stf"
   "syscall"
-  "time"
 )
 
 type WorkerUnitDef struct {
@@ -80,8 +79,6 @@ func (self *WorkerDrone) Start() {
   // Channel where we receive process exits
   exitChan := self.WorkerExitChan
 
-  ticker := time.Tick(1 * time.Second)
-
   for loop {
     select {
     case sig := <-sigChan:
@@ -93,9 +90,8 @@ func (self *WorkerDrone) Start() {
       break // 
     default:
       // When we fall here we know that we neither got a signal
-      // nor an exit notice. wait for the next ticker, which effectively
-      // lets us "sleep"
-      <-ticker
+      // nor an exit notice. sleep and wait
+      stf.RandomSleep()
     }
   }
 }

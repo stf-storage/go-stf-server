@@ -7,6 +7,7 @@ import (
   "fmt"
   "io"
   "log"
+  "math/rand"
   "os"
   "os/user"
   "strconv"
@@ -83,5 +84,15 @@ func ConnectDB(config *DatabaseConfig) (*sql.DB, error) {
 
   return db, nil
 }
+
+// Sleeps for random amount of time 1 > t > 0, returns the slept duration
+func RandomSleep () time.Duration {
+  max := int64(time.Second)
+  dur := time.Duration(rand.Int63n(max))
+  time.Sleep(dur)
+  return dur
+}
+  
+
 
 
