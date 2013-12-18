@@ -35,6 +35,7 @@ type WorkerDrone struct {
   Config          *stf.Config
   Cache           *stf.MemdClient
   MainDB          *sql.DB
+  Loop            bool
   WorkerExitChan  chan *WorkerUnitDef
   WorkerUnitDefs  []*WorkerUnitDef
   IsLeader        bool
@@ -85,6 +86,7 @@ func NewDrone(cfg *stf.Config) (*WorkerDrone) {
     cfg,
     cache,
     db,
+    true,
     make(chan *WorkerUnitDef),
     []*WorkerUnitDef{
       &WorkerUnitDef {
@@ -132,7 +134,7 @@ func (self *WorkerDrone) Start() {
     t.Command = cmd
   }
 
-  loop := true
+  self.Loop = true
 
   // XXX Signal names are not portable... what to do?
   sigChan := make(chan os.Signal, 1)
@@ -149,11 +151,11 @@ func (self *WorkerDrone) Start() {
   // Initial announce, so we should tell the leader to reload
   self.BroadcastReload()
 
-  for loop {
+  for self.Loop {
     select {
     case sig := <-sigChan:
       log.Printf("Received signal %s", sig)
-      loop = false
+      self.Loop = false
       break // terminate early
     case <-announceTick:
       // Announce our presence every so often
@@ -165,8 +167,11 @@ func (self *WorkerDrone) Start() {
       self.CheckState()
       self.ElectLeader()
       self.Reload()
-      if self.IsLeader {
-        self.Rebalance()
+      if self.ShouldRebalance() {
+        if self.IsLeader {
+          self.Rebalance()
+        }
+        self.NotifyWorkers()
       }
 
       // When we fall here we know that we neither got a signal
@@ -420,6 +425,16 @@ func (self *WorkerDrone) Rebalance () {
   self.LastBalance = &t
 }
 
+func (self *WorkerDrone) NotifyWorkers() {
+  for _, wu := range self.WorkerUnitDefs {
+    if cmd := wu.Command; cmd != nil {
+      p := cmd.Process
+      log.Printf("Sending HUP to process %d to reflect new changes", p.Pid)
+      p.Signal(syscall.SIGHUP)
+    }
+  }
+}
+
 func (self *WorkerDrone) Reload() {
   if ! self.ShouldReload() {
     return
@@ -529,8 +544,11 @@ func (self *WorkerDrone) SpawnWorkerUnit (t *WorkerUnitDef) (*exec.Cmd, error) {
   exitChan := self.WorkerExitChan
   go func () {
     cmd.Wait()
+    t.Command = nil
     log.Printf("Exit: %v", cmd.Args)
-    exitChan <- t
+    if self.Loop {
+      exitChan <- t
+    }
   }()
 
   return cmd, nil

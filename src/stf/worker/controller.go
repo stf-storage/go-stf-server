@@ -263,7 +263,10 @@ func (self *WorkerController) ReloadConfig() {
 
   var count int
   err := row.Scan(&count)
-  if err != nil {
+
+  if err == sql.ErrNoRows {
+    return
+  } else if err != nil {
     panic(fmt.Sprintf("Failed to reload config %s", err))
   }
 
