@@ -1,6 +1,7 @@
 package worker
 
 import (
+  "database/sql"
   "bufio"
   "errors"
   "flag"
@@ -9,8 +10,11 @@ import (
   "os"
   "os/exec"
   "os/signal"
+  "strings"
   "stf"
+  "strconv"
   "syscall"
+  "time"
 )
 
 type WorkerUnitDef struct {
@@ -19,7 +23,10 @@ type WorkerUnitDef struct {
 }
 
 type WorkerDrone struct {
+  Id              string
   Config          *stf.Config
+  Cache           *stf.MemdClient
+  MainDB          *sql.DB
   WorkerExitChan  chan *WorkerUnitDef
   WorkerUnitDefs  []*WorkerUnitDef
 }
@@ -39,8 +46,31 @@ func NewDroneFromArgv () (*WorkerDrone) {
 }
 
 func NewDrone(cfg *stf.Config) (*WorkerDrone) {
+  hostname, err := os.Hostname()
+  if err != nil {
+    panic("Could not get hostname")
+  }
+
+  id := strings.Join(
+    []string {
+      hostname,
+      strconv.FormatInt(int64(os.Getpid()), 10),
+      stf.GenerateRandomId("drone", 8),
+    },
+    ".",
+  )
+
+  cache := stf.NewMemdClient(cfg.Memcached.Servers...)
+  db, err := stf.ConnectDB(&cfg.MainDB)
+  if err != nil {
+    panic(fmt.Sprintf("Could not connect to main database: %s", err))
+  }
+
   return &WorkerDrone {
+    id,
     cfg,
+    cache,
+    db,
     make(chan *WorkerUnitDef),
     []*WorkerUnitDef{
       &WorkerUnitDef {
@@ -79,21 +109,57 @@ func (self *WorkerDrone) Start() {
   // Channel where we receive process exits
   exitChan := self.WorkerExitChan
 
+  // Ticker to announce our presence
+  announceTick := time.Tick(1 * time.Minute)
+  self.Announce()
+
+  // Initial announce, so we should tell the leader to reload
+  self.BroadcastReload()
+
   for loop {
     select {
     case sig := <-sigChan:
       log.Printf("Received signal %s", sig)
       loop = false
       break // terminate early
+    case <-announceTick:
+      // Announce our presence every so often
+      self.Announce()
     case t := <-exitChan:
       self.SpawnWorkerUnit(t)
-      break // 
+      break //
     default:
       // When we fall here we know that we neither got a signal
       // nor an exit notice. sleep and wait
       stf.RandomSleep()
     }
   }
+}
+
+func (self *WorkerDrone) Announce() {
+  log.Printf("Announce %s", self.Id)
+
+  db  := self.MainDB
+  _, err := db.Exec(
+    `INSERT INTO worker_election (drone_id, expires_at)
+      VALUES (?, UNIX_TIMESTAMP() + 300) 
+      ON DUPLICATE KEY UPDATE expires_at = UNIX_TIMESTAMP() + 300`,
+    self.Id,
+  )
+
+  if err != nil {
+    panic(fmt.Sprintf("Failed to announce: %s", err))
+  }
+}
+
+func (self *WorkerDrone) BroadcastReload() {
+  log.Printf("Broadcast reload")
+
+  cache := self.Cache
+  next := time.Unix(0, 0)
+  cache.Set("stf.drone.reload",   next, 0)
+  cache.Set("stf.drone.election", next, 0)
+  cache.Set("stf.drone.balance",  next, 0)
 }
 
 func (self *WorkerDrone) SpawnWorkerUnit (t *WorkerUnitDef) (*exec.Cmd, error) {
