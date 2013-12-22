@@ -12,6 +12,8 @@ go-stf-server is still in heavy development
 * Simple object creation works.
 * Simple object fetch works.
 * Simple object deletion (on the surface) works.
+* Workers: Auto-balancing via simple leader-election
+* Workers: RepairObject / DeleteObject done
 
 ## TODO
 
