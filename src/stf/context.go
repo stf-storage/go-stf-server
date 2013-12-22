@@ -95,6 +95,11 @@ func (self *BaseContext) Debugf(format string, args ...interface {}) {
 }
 
 func (self *BaseContext) LogMark(format string, args ...interface{}) func () {
+  dbgLog := self.DebugLog()
+  if dbgLog == nil {
+    return func() {}
+  }
+
   marker := fmt.Sprintf(format, args...)
 
   self.Debugf("%s START", marker)
