@@ -4,8 +4,12 @@ import (
   "database/sql"
   "errors"
   "fmt"
+  "log"
   "math/rand"
   "net/http"
+  "os"
+  "strconv"
+  "strings"
   "time"
   _ "github.com/go-sql-driver/mysql"
 )
@@ -146,6 +150,26 @@ func BootstrapContext() (*GlobalContext, error) {
   ctx.ConfigPtr = cfg
   ctx.NumQueueDBCount = len(cfg.QueueDBList)
   ctx.QueueDBPtrList = make([]*sql.DB, ctx.NumQueueDBCount)
+
+  if dbg := os.Getenv("STF_DEBUG"); dbg != "" {
+    // STF_DEBUG='1:path/to/log'
+    if strings.Index(dbg, ":") > -1 {
+      list := strings.Split(dbg, ":")
+      dbg = list[0]
+      if len(list) > 1 {
+        file, err := os.OpenFile(list[1], os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0755)
+        if err != nil {
+          log.Fatalf("Failed to open debug log output %s: %s", list[1], err)
+        }
+        log.SetOutput(file)
+      }
+    }
+    x, err := strconv.ParseBool(dbg)
+    if err != nil {
+      log.Printf("Detected STF_DEBUG = %s", x)
+      cfg.Global.Debug = x
+    }
+  }
 
   if cfg.Global.Debug {
     ctx.DebugLogPtr = NewDebugLog()
