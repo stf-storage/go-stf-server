@@ -1,6 +1,7 @@
 package worker
 
 import (
+  "reflect"
   "stf"
   "strconv"
   "sync"
@@ -9,18 +10,9 @@ import (
 type RepairObjectWorker GenericWorker
 
 func NewRepairObjectWorker(args *HandlerArgs) WorkerCommChannel {
-  // This is the channel used to talk to this specific worker
-  privateChan := make(WorkerCommChannel, 1)
-  worker := &RepairObjectWorker {
-    args.Id,
-    NewWorkerContext(),
-    args.MaxJobs,
-    args.ControlChan,
-    privateChan,
-    args.JobChan,
-  }
-  worker.Start(args.Waiter)
-  return privateChan
+  w := NewDynamicWorker(reflect.TypeOf(RepairObjectWorker {}), args).(*RepairObjectWorker)
+  w.Start(args.Waiter)
+  return w.GetPrivateChannel()
 }
 
 func (self *RepairObjectWorker) GetId() string {

@@ -4,6 +4,7 @@ import (
   "database/sql"
   "log"
   "math/rand"
+  "reflect"
   "stf"
   "sync"
   "time"
@@ -43,13 +44,22 @@ type GenericWorker struct {
   JobChan       JobChannel
 }
 
-type WorkerHandler interface {
-  Work(arg *stf.WorkerArg)
-  GetId() string
+type HandlerAttrs interface {
+  GetId()             string
   GetMaxJobs()        int
-  GetJobChannel()     JobChannel
   GetPrivateChannel() WorkerCommChannel
   GetControlChannel() WorkerCommChannel
+}
+
+type PeriodicHandler interface {
+  HandlerAttrs
+  Work()        time.Time
+}
+
+type JobHandler interface {
+  HandlerAttrs
+  Work(arg *stf.WorkerArg)
+  GetJobChannel()     JobChannel
 }
 
 func NewWorkerContext () *WorkerContext {
@@ -78,7 +88,76 @@ func NewWorkerContext () *WorkerContext {
   return ctx
 }
 
-func GenericWorkerJobReceiver(handler WorkerHandler, w *sync.WaitGroup) {
+func NewDynamicWorker(workerType reflect.Type, args *HandlerArgs) interface {} {
+  if workerType.Kind() != reflect.Struct {
+    log.Fatalf("Cannot initialize worker Type %v", workerType)
+  }
+
+  w := reflect.New(workerType)
+
+  // w is a pointer. get the actual value
+  v := w.Elem()
+
+  privateChan := make(WorkerCommChannel, 1)
+  v.FieldByName("Id").SetString(args.Id)
+  v.FieldByName("Ctx").Set(reflect.ValueOf(NewWorkerContext()))
+  v.FieldByName("MaxJobs").SetInt(int64(args.MaxJobs))
+  v.FieldByName("ControlChan").Set(reflect.ValueOf(args.ControlChan))
+  v.FieldByName("PrivateChan").Set(reflect.ValueOf(privateChan))
+  v.FieldByName("JobChan").Set(reflect.ValueOf(args.JobChan))
+
+  return w.Interface()
+}
+
+func GenericPeriodicWorker(handler PeriodicHandler, w *sync.WaitGroup) {
+  killedByControl := false
+  privChan        := handler.GetPrivateChannel()
+  ctrlChan        := handler.GetControlChannel()
+  id              := handler.GetId()
+
+  // If killedbyControl is true, we were exiting because we've been 
+  // asked to do so. In that case we don't notify our exit
+  defer func() {
+    if ! killedByControl {
+      // we weren't killed explicitly, send via our control channel
+      // that we've exited for whatever reason
+      ctrlChan <- CmdWorkerExited(id)
+    }
+  }()
+
+  defer w.Done()
+
+  jobCount := 0
+  maxJobs := handler.GetMaxJobs()
+  loop := true
+  next := time.Now()
+  for loop {
+    select {
+    case <-privChan:
+      loop = false
+      killedByControl = true
+      break
+    default:
+      now := time.Now()
+      delta := next.Sub(now)
+      if seconds := delta.Seconds(); seconds > 0 {
+        stf.RandomSleep(1)
+      } else {
+        jobCount++
+        next = handler.Work()
+      }
+      break
+    }
+
+    if jobCount >= maxJobs {
+      loop = false
+    }
+  }
+
+  log.Printf("Worker %s exiting", id)
+}
+
+func GenericWorkerJobReceiver(handler JobHandler, w *sync.WaitGroup) {
   killedByControl := false
   privChan        := handler.GetPrivateChannel()
   ctrlChan        := handler.GetControlChannel()

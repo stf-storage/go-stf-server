@@ -1,6 +1,7 @@
 package worker
 
 import (
+  "reflect"
   "stf"
   "strconv"
   "sync"
@@ -9,17 +10,9 @@ import (
 type DeleteObjectWorker GenericWorker
 
 func NewDeleteObjectWorker(args *HandlerArgs) WorkerCommChannel {
-  privateChan := make(WorkerCommChannel)
-  worker := &DeleteObjectWorker {
-    args.Id,
-    NewWorkerContext(),
-    args.MaxJobs,
-    args.ControlChan,
-    privateChan,
-    args.JobChan,
-  }
-  worker.Start(args.Waiter)
-  return privateChan
+  w := NewDynamicWorker(reflect.TypeOf(DeleteObjectWorker {}), args).(*DeleteObjectWorker)
+  w.Start(args.Waiter)
+  return w.GetPrivateChannel()
 }
 
 func (self *DeleteObjectWorker) GetId() string {

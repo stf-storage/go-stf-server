@@ -90,12 +90,9 @@ func RandomDuration(maxSeconds int64) time.Duration {
 }
 
 // Sleeps for random amount of time 1 > t > 0, returns the slept duration
-func RandomSleep () time.Duration {
-  dur := time.Duration(RandomDuration(1))
+func RandomSleep (secs int64) time.Duration {
+  dur := time.Duration(RandomDuration(secs))
   time.Sleep(dur)
   return dur
 }
-  
-
-
 

@@ -17,6 +17,7 @@ DEPS="
   github.com/vmihailenco/msgpack
 "
 for dep in $DEPS; do
+  OIFS=$IFS
   IFS=':'
   for path in $GOPATH; do
     echo "Checking $path/src/$dep"
@@ -25,9 +26,18 @@ for dep in $DEPS; do
       go get $dep
     fi
   done
+  IFS=$OIFS
 done
 
-for executable in worker worker_repair_object worker_delete_object dispatcher storage; do
+EXECUTABLES="
+  worker
+  worker_storage_health
+  worker_repair_object
+  worker_delete_object
+  dispatcher
+  storage
+"
+for executable in $EXECUTABLES; do
   echo "Building bin/$executable"
   go build -a -o bin/$executable src/cli/$executable.go
 done

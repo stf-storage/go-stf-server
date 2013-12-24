@@ -176,7 +176,7 @@ func (self *WorkerDrone) Start() {
 
       // When we fall here we know that we neither got a signal
       // nor an exit notice. sleep and wait
-      stf.RandomSleep()
+      stf.RandomSleep(1)
     }
   }
   self.Loop = false // sanity

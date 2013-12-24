@@ -2,7 +2,6 @@ package worker
 
 import (
   "database/sql"
-  "errors"
   "flag"
   "fmt"
   "log"
@@ -11,7 +10,6 @@ import (
   "stf"
   "sync"
   "syscall"
-  "time"
 )
 
 type WorkerCommChannel chan WorkerCommand
@@ -29,14 +27,11 @@ type WorkerController struct {
   Config              *stf.Config
   MainDB              *sql.DB
   JobChan             chan *stf.WorkerArg
-  FetcherControlChan  chan bool
   SigChan             chan os.Signal
   // channel to read-in stream of commands from workers
   WorkerChan          WorkerCommChannel
-  CurrentQueueIdx     int
+  Fetcher             *WorkerFetcher
   DroneId             string
-  QueueTableName      string
-  QueueTimeout        int
   Waiter              *sync.WaitGroup
   MaxWorkers          int
   MaxJobsPerWorker    int
@@ -45,7 +40,6 @@ type WorkerController struct {
   CreateHandler       CreateHandlerFunc
 }
 
-var ErrNothingDequeued = errors.New("Could not find any jobs")
 func NewWorkerControllerFromArgv(
   name string,
   tablename string,
@@ -94,6 +88,25 @@ func NewWorkerController (
     panic(fmt.Sprintf("Could not connect to main database: %s", err))
   }
 
+  jobChan := make(chan *stf.WorkerArg)
+  waiter  := &sync.WaitGroup {}
+
+  // XXX name currently dictates if we need a fetcher or not.
+  // this doesn't sound too smart. maybe fix it one of these
+  // days, when I learn enough go reflection
+  var fetcher *WorkerFetcher
+  switch name {
+  case "DeleteObject", "RepairObject":
+    fetcher = NewWorkerFetcher(
+      name,
+      cfg,
+      jobChan,
+      tablename,
+      timeout,
+      waiter,
+    )
+  }
+
   return &WorkerController {
     name,
 
@@ -102,10 +115,7 @@ func NewWorkerController (
     db,
 
     // JobChan, used to pass jobs from fetcher to worker(s)
-    make(chan *stf.WorkerArg),
-
-    // FetcherControlChan, used to tell fetcher to stop
-    make(chan bool),
+    jobChan,
 
     // SigChan, used to propagate signal notification
     make(chan os.Signal, 1),
@@ -113,18 +123,12 @@ func NewWorkerController (
     // WorkerChan, notifications from worker(s) that they have "exited"
     make(WorkerCommChannel, 1),
 
-    0,
+    fetcher,
 
     // Name of the drone that this belongs to
     droneId,
 
-    // This is the name of the queue to listen
-    tablename,
-
-    // This is how much we wait per queue_wait()
-    timeout,
-
-    &sync.WaitGroup {},
+    waiter,
 
     maxWorkers,
 
@@ -144,53 +148,13 @@ func (self *WorkerController) Start() {
   sigChan := self.SigChan
   signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 
-  self.StartFetcherThread()
+  if fetcher := self.Fetcher; fetcher != nil {
+    fetcher.Start()
+  }
   self.StartControllerThread()
 
   self.Waiter.Wait()
   log.Printf("Exiting worker unit for %s", self.Name)
-}
-
-
-func (self *WorkerController) StartFetcherThread() {
-  self.Waiter.Add(1)
-  go func(name string, w *sync.WaitGroup, jobChan chan *stf.WorkerArg, controlChan chan bool) {
-    defer w.Done()
-
-    var skipDequeue <-chan time.Time
-    loop := true
-    for loop {
-      select {
-      case <-controlChan:
-        log.Printf("Received fetcher termination request. Exiting")
-        loop = false
-        break
-      case <-skipDequeue:
-        stf.RandomSleep()
-      default:
-        stf.RandomSleep()
-      }
-
-      if ! loop {
-        break
-      }
-
-      // Go and dequeue
-      job, err := self.Dequeue()
-      switch err {
-      case nil:
-        jobChan <- job
-
-      default:
-        // We encountered an error. It's very likely that we are not going
-        // to succeed getting the next one. In that case, go listen to the
-        // controlChan, but don't fall into the dequeue clause until the
-        // next "tick" arrives
-        skipDequeue = time.After(500 * time.Millisecond)
-      }
-    }
-    log.Printf("Fetcher for %s exiting", name)
-  }(self.Name, self.Waiter, self.JobChan, self.FetcherControlChan)
 }
 
 func (self *WorkerController) StartControllerThread () {
@@ -233,7 +197,7 @@ func (self *WorkerController) StartControllerThread () {
           log.Printf("Unknown command type %d", cmd.GetType())
         }
       default:
-        stf.RandomSleep()
+        stf.RandomSleep(1)
       }
 
       if ! loop {
@@ -332,49 +296,12 @@ func (self *WorkerController) Respawn() {
 
 func (self *WorkerController) KillAll() {
   // Send the fetcher a termination signal
-  log.Printf("KillAll: Sending notice to fetcher")
-  self.FetcherControlChan <- true
+  if fetcher := self.Fetcher; fetcher != nil {
+    fetcher.Stop()
+  }
 
   for id, c := range self.ActiveWorkers {
     log.Printf("KillAll: Sending notice to worker %s", id)
     c <- CmdStop()
   }
-}
-
-func (self *WorkerController) Dequeue() (*stf.WorkerArg, error) {
-  qdbConfig := self.Config.QueueDBList
-
-  sql := fmt.Sprintf(
-    "SELECT args, created_at FROM %s WHERE queue_wait(?, ?)",
-    self.QueueTableName,
-  )
-
-  max := len(qdbConfig)
-  var arg stf.WorkerArg
-  for i := 0; i < max; i++ {
-    idx := self.CurrentQueueIdx
-    self.CurrentQueueIdx++
-    if self.CurrentQueueIdx >= max {
-      self.CurrentQueueIdx = 0
-    }
-    config := qdbConfig[idx]
-    db, err := stf.ConnectDB(config)
-
-    if err != nil {
-      continue
-    }
-
-    row := db.QueryRow(sql, self.QueueTableName, self.QueueTimeout)
-
-    err = row.Scan(&arg.Arg, &arg.CreatedAt)
-    db.Exec("SELECT queue_end()") // Call this regardless
-
-    if err != nil {
-      continue
-    }
-
-    return &arg, nil
-  }
-
-  return nil, ErrNothingDequeued
 }
