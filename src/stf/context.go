@@ -4,6 +4,7 @@ import (
   "database/sql"
   "errors"
   "fmt"
+  "io"
   "log"
   "math/rand"
   "net/http"
@@ -151,6 +152,7 @@ func BootstrapContext() (*GlobalContext, error) {
   ctx.NumQueueDBCount = len(cfg.QueueDBList)
   ctx.QueueDBPtrList = make([]*sql.DB, ctx.NumQueueDBCount)
 
+  var dbgOutput  io.Writer = os.Stderr
   if dbg := os.Getenv("STF_DEBUG"); dbg != "" {
     // STF_DEBUG='1:path/to/log'
     if strings.Index(dbg, ":") > -1 {
@@ -161,19 +163,21 @@ func BootstrapContext() (*GlobalContext, error) {
         if err != nil {
           log.Fatalf("Failed to open debug log output %s: %s", list[1], err)
         }
-        log.SetOutput(file)
+        dbgOutput = file
       }
     }
     x, err := strconv.ParseBool(dbg)
-    if err != nil {
+    if err == nil {
       log.Printf("Detected STF_DEBUG = %s", x)
       cfg.Global.Debug = x
     }
   }
 
   if cfg.Global.Debug {
+    log.SetOutput(dbgOutput)
     ctx.DebugLogPtr = NewDebugLog()
     ctx.DebugLogPtr.Prefix = "GLOBAL"
+    ctx.DebugLogPtr.Printf("Starting debug log")
   }
 
   return ctx, nil
