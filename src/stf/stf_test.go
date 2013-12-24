@@ -63,10 +63,13 @@ func (self *TestEnv) startDatabase()  {
   }
 
   basedir := filepath.Join(self.WorkDir, "mysql")
+  defaultsFile := filepath.Join(basedir, "etc", "my.cnf")
   cmd := exec.Command(
     fullpath,
-    fmt.Sprintf("--defaults-file=%s", basedir),
+    fmt.Sprintf("--defaults-file=%s", defaultsFile),
   )
+
+  err = cmd.Start()
   if err != nil {
     log.Fatalf("Failed to execute command %s: %s", cmd, err)
   }
@@ -94,6 +97,8 @@ func (self *TestEnv) startDatabase()  {
   self.Database = td
 
   self.Logf("Started database listening at %s", td.Socket)
+
+  go cmd.Wait()
 
   self.Guards = append(self.Guards, func() {
     if cmd.Process != nil {
