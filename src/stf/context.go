@@ -168,7 +168,6 @@ func BootstrapContext() (*GlobalContext, error) {
     }
     x, err := strconv.ParseBool(dbg)
     if err == nil {
-      log.Printf("Detected STF_DEBUG = %s", x)
       cfg.Global.Debug = x
     }
   }
