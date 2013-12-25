@@ -43,6 +43,7 @@ func (self *TestEnv) Setup () {
   self.createTemporaryDir()
   self.startDatabase()
   self.createTemporaryConfig()
+  self.startTemporaryStorageServers()
 }
 
 func (self *TestEnv) Release () {
@@ -103,7 +104,6 @@ func (self *TestEnv) startDatabase()  {
     }
   })
 
-  // Sanity check to make sure the database can be connected
   _, err = ConnectDB(config)
   if err != nil {
     t := self.Test
@@ -120,6 +120,7 @@ func (self *TestEnv) createDatabase() {
   // Read from DDL file, each statement (delimited by ";")
   // then execute each statement via db.Exec()
   t := self.Test
+
   db, err := ConnectDB(self.MysqlConfig)
   if err != nil {
     t.Errorf("Failed to connect to database: %s", err)
@@ -198,7 +199,7 @@ Dbname=%s
   })
 }
 
-func (self *TestEnv) startTemporaryStorageServer(dir string) {
+func (self *TestEnv) startTemporaryStorageServer(id int, dir string) {
   ss := NewStorageServer("dummy", dir)
   dts := httptest.NewServer(ss)
 
@@ -207,7 +208,10 @@ func (self *TestEnv) startTemporaryStorageServer(dir string) {
   if err != nil {
     log.Fatalf("Failed to connect to database: %s", err)
   }
-  db.Exec("INSERT INTO storage (uri, mode) VALUES (?, 1)", dts.URL)
+  _, err = db.Exec("INSERT INTO storage (id, uri, mode, cluster_id) VALUES (?, ?, 1, 1)", id, dts.URL)
+  if err != nil {
+    log.Fatalf("Failed to insert storage into DB: %s", err)
+  }
 
   self.Guards = append(self.Guards, func() {
     dts.Close()
@@ -215,9 +219,18 @@ func (self *TestEnv) startTemporaryStorageServer(dir string) {
 }
 
 func (self *TestEnv) startTemporaryStorageServers() {
+  // Register ourselves in the database
+  db, err := ConnectDB(self.MysqlConfig)
+  if err != nil {
+    log.Fatalf("Failed to connect to database: %s", err)
+  }
+  _, err = db.Exec("INSERT INTO storage_cluster (id, name, mode) VALUES (1, 1, 1)")
+  if err != nil {
+    log.Fatalf("Failed to create storage cluster: %s", err)
+  }
   for i := 1; i <= 3; i++ {
     mydir := filepath.Join(self.WorkDir, fmt.Sprintf("storage%03d", i))
-    self.startTemporaryStorageServer(mydir)
+    self.startTemporaryStorageServer(i, mydir)
   }
 }
 
@@ -258,7 +271,16 @@ func TestBasic(t *testing.T) {
 
   _, filename, _, _ := runtime.Caller(1)
   file, err := os.Open(filename)
+  if err != nil {
+    t.Errorf("Failed to open %s: %s", filename, err)
+  }
+  fi, err := file.Stat()
+  if err != nil {
+    t.Errorf("Failed to stat %s: %s", filename, err)
+  }
+
   req, err = http.NewRequest("PUT", url, file)
+  req.ContentLength = fi.Size()
   res, _ = client.Do(req)
   if res.StatusCode != 204 {
     t.Errorf("PUT %s: want 204, got %d", url, res.StatusCode)
