@@ -15,6 +15,7 @@ import (
   "runtime/debug"
   "strings"
   "strconv"
+  "github.com/braintree/manners"
   "github.com/lestrrat/go-server-starter-listener"
 )
 
@@ -77,7 +78,9 @@ func (self *Dispatcher) Start () {
     }
   }
 
-  err = http.Serve(baseListener, self)
+  s := manners.NewServer()
+  l := manners.NewListener(baseListener, s)
+  err = http.Serve(l, self)
   if err != nil {
     log.Fatal(
       fmt.Sprintf("Error from server's ListenAndServe: %s\n", err),
