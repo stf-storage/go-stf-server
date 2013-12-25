@@ -6,4 +6,4 @@ go:
 install:
     - go get -d ./...
 script:
-    - go test -v stf
+    - go test -v .
