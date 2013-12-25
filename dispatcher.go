@@ -12,6 +12,7 @@ import (
   "net/http"
   "regexp"
   "runtime"
+  "runtime/debug"
   "strings"
   "strconv"
   "github.com/lestrrat/go-server-starter-listener"
@@ -94,6 +95,7 @@ func (self *Dispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
   // Generic catch-all handler
   defer func() {
     if err := recover(); err != nil {
+      debug.PrintStack()
       self.Debugf("Error while serving request: %s", err)
       http.Error(w, http.StatusText(500), 500)
     }

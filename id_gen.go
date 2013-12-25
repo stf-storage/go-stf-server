@@ -23,6 +23,10 @@ type UUIDGen struct {
   timeout   int64
 }
 
+func NewIdGenerator (seed uint64) *UUIDGen {
+  return &UUIDGen { seed: seed }
+}
+
 func (self *UUIDGen) CreateId () uint64 {
   /* Only one thread can enter this critical section, but it also must be
      guarded carefully so that we don't find this thread being blocked

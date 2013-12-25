@@ -151,6 +151,7 @@ func BootstrapContext() (*GlobalContext, error) {
   ctx.ConfigPtr = cfg
   ctx.NumQueueDBCount = len(cfg.QueueDBList)
   ctx.QueueDBPtrList = make([]*sql.DB, ctx.NumQueueDBCount)
+  ctx.IdgenPtr = NewIdGenerator(cfg.Dispatcher.ServerId)
 
   var dbgOutput  io.Writer = os.Stderr
   if dbg := os.Getenv("STF_DEBUG"); dbg != "" {
