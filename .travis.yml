@@ -14,4 +14,4 @@ install:
     - go get github.com/lestrrat/go-test-mysqld
     - go get github.com/vmihailenco/msgpack
 script:
-    - go test -v .
+    - STF_DEBUG=1:`pwd`/test.log go test -v . || cat `pwd`/test.log
