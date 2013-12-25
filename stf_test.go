@@ -3,6 +3,7 @@ package stf
 import (
   "fmt"
   "github.com/lestrrat/go-test-mysqld"
+  "io"
   "io/ioutil"
   "log"
   "os"
@@ -10,6 +11,7 @@ import (
   "net/http"
   "net/http/httptest"
   "runtime"
+  "strings"
   "testing"
   "time"
 )
@@ -117,14 +119,42 @@ func (self *TestEnv) startDatabase()  {
 func (self *TestEnv) createDatabase() {
   // Read from DDL file, each statement (delimited by ";")
   // then execute each statement via db.Exec()
-  _, err := ConnectDB(self.MysqlConfig)
+  t := self.Test
+  db, err := ConnectDB(self.MysqlConfig)
   if err != nil {
-    t := self.Test
     t.Errorf("Failed to connect to database: %s", err)
     t.FailNow()
   }
 
-  // TODO
+  file, err := os.Open("stf.sql")
+  if err != nil {
+    t.Errorf("Failed to read DDL: %s", err)
+    t.FailNow()
+  }
+
+  fi, err := file.Stat()
+  if err != nil {
+    t.Errorf("Failed to stat file: %s", err)
+    t.FailNow()
+  }
+
+  buf := make([]byte, fi.Size())
+  _, err = io.ReadFull(file, buf)
+  strbuf := string(buf)
+
+  for {
+    i := strings.Index(strbuf, ";")
+    if i < 0 {
+      break
+    }
+    stmt := strbuf[0:i]
+    _, err = db.Exec(stmt)
+    if err != nil {
+      t.Errorf("Failed to execute SQL: %s", err)
+      t.FailNow()
+    }
+    strbuf = strbuf[i+1:len(strbuf)-1]
+  }
 }
 
 func (self *TestEnv) createTemporaryDir() {
