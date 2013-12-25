@@ -1,6 +1,7 @@
 package stf
 
 import(
+  "log"
   "os"
   "path"
   "path/filepath"
@@ -49,6 +50,7 @@ func LoadConfig (home string) (*Config, error) {
   if ! filepath.IsAbs(file) {
     file = path.Join(home, file)
   }
+  log.Printf("Loading config file %s", file)
 
   err := gcfg.ReadFileInto(cfg, file)
   if err != nil {

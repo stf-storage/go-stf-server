@@ -2,16 +2,16 @@ package stf
 
 import (
   "fmt"
+  "github.com/lestrrat/go-test-mysqld"
   "io/ioutil"
   "log"
   "os"
-  "os/exec"
   "path/filepath"
   "net/http"
   "net/http/httptest"
   "runtime"
-  "syscall"
   "testing"
+  "time"
 )
 
 type TestEnv struct {
@@ -19,7 +19,8 @@ type TestEnv struct {
   Guards      []func()
   WorkDir     string
   ConfigFile  *os.File
-  Database    *TestDatabase
+  Mysqld      *mysqltest.TestMysqld
+  MysqlConfig *DatabaseConfig
 }
 
 type TestDatabase struct {
@@ -56,55 +57,59 @@ func (self *TestEnv) Logf(format string, args ...interface {}) {
   self.Test.Logf(format, args...)
 }
 
+func AssertDir(dir string) {
+  _, err := os.Stat(dir)
+  if err == nil {
+    return // XXX not checking if dir is a directory
+  }
+
+  if ! os.IsNotExist(err) {
+    panic(fmt.Sprintf("Error while asserting directory %s: %s", dir, err))
+  }
+
+  err = os.MkdirAll(dir, 0777)
+  if err != nil {
+    panic(fmt.Sprintf("Failed to create directory %s: %s", dir, err))
+  }
+}
+
 func (self *TestEnv) startDatabase()  {
-  fullpath, err := exec.LookPath("mysqld")
+  mycnf := mysqltest.NewConfig()
+  mycnf.SkipNetworking = false
+  mycnf.Port = 3306
+  mysqld, err := mysqltest.NewMysqld(mycnf)
   if err != nil {
-    log.Fatalf("Failed to find mysqld in path: %s", err)
+    t := self.Test
+    t.Errorf("Failed to start mysqld: %s", err)
+    t.FailNow()
   }
+  self.Mysqld = mysqld
 
-  basedir := filepath.Join(self.WorkDir, "mysql")
-  defaultsFile := filepath.Join(basedir, "etc", "my.cnf")
-  cmd := exec.Command(
-    fullpath,
-    fmt.Sprintf("--defaults-file=%s", defaultsFile),
-  )
-
-  err = cmd.Start()
-  if err != nil {
-    log.Fatalf("Failed to execute command %s: %s", cmd, err)
-  }
-
-  tmpdir := filepath.Join(basedir, "tmp")
-  td := &TestDatabase {
-    nil,
-    filepath.Join(tmpdir, "mysql.sock"), // Socket
-    filepath.Join(basedir, "var"), // DataDir
-    filepath.Join(tmpdir, "mysqld.pid"), // PidFile
-    tmpdir,
-  }
-
-  // td.WriteMycnf(filepath.Join(basedir, "etc", "my.cnf"))
-
+  time.Sleep(2 * time.Second)
   config := &DatabaseConfig {
     "mysql",
     "root",
     "",
-    fmt.Sprintf("unix(%s)", td.Socket),
+    fmt.Sprintf("tcp(%s:%d)", mysqld.Config.BindAddress, mysqld.Config.Port),
     "test",
   }
-
-  td.Config = config
-  self.Database = td
-
-  self.Logf("Started database listening at %s", td.Socket)
-
-  go cmd.Wait()
+  self.MysqlConfig = config
 
   self.Guards = append(self.Guards, func() {
-    if cmd.Process != nil {
-      cmd.Process.Signal(syscall.SIGTERM)
+    if mysqld := self.Mysqld; mysqld != nil {
+      mysqld.Stop()
     }
   })
+
+  // Sanity check to make sure the database can be connected
+  _, err = ConnectDB(config)
+  if err != nil {
+    t := self.Test
+    t.Errorf("Failed to connect to database: %s", err)
+    t.FailNow()
+  }
+
+  self.Test.Logf("Database files in %s", mysqld.BaseDir())
 }
 
 func (self *TestEnv) createTemporaryDir() {
@@ -126,6 +131,19 @@ func (self *TestEnv) createTemporaryConfig() {
     self.Errorf("Failed to create tempfile: %s", err)
   }
 
+  tempfile.WriteString(fmt.Sprintf(
+`
+[MainDB]
+Username=%s
+ConnectString=%s
+Dbname=%s
+`,
+    self.MysqlConfig.Username,
+    self.MysqlConfig.ConnectString,
+    self.MysqlConfig.Dbname,
+  ))
+  tempfile.Sync()
+
   self.Logf("Created config file %s", tempfile.Name())
 
   self.ConfigFile = tempfile
@@ -140,7 +158,7 @@ func (self *TestEnv) startTemporaryStorageServer(dir string) {
   dts := httptest.NewServer(ss)
 
   // Register ourselves in the database
-  db, err := ConnectDB(self.Database.Config)
+  db, err := ConnectDB(self.MysqlConfig)
   if err != nil {
     log.Fatalf("Failed to connect to database: %s", err)
   }
