@@ -1,8 +1,8 @@
 package worker
 
 import (
+  "github.com/stf-storage/go-stf-server"
   "reflect"
-  "stf"
   "strconv"
   "sync"
 )

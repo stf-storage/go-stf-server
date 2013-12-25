@@ -3,8 +3,8 @@ package worker
 import (
   "errors"
   "fmt"
+  "github.com/stf-storage/go-stf-server"
   "log"
-  "stf"
   "sync"
   "time"
 )

@@ -3,10 +3,10 @@ package worker
 import (
   "errors"
   "fmt"
+  "github.com/stf-storage/go-stf-server"
   "log"
   "net/http"
   "reflect"
-  "stf"
   "strconv"
   "strings"
   "sync"

@@ -110,6 +110,21 @@ func (self *TestEnv) startDatabase()  {
   }
 
   self.Test.Logf("Database files in %s", mysqld.BaseDir())
+
+  self.createDatabase()
+}
+
+func (self *TestEnv) createDatabase() {
+  // Read from DDL file, each statement (delimited by ";")
+  // then execute each statement via db.Exec()
+  _, err := ConnectDB(self.MysqlConfig)
+  if err != nil {
+    t := self.Test
+    t.Errorf("Failed to connect to database: %s", err)
+    t.FailNow()
+  }
+
+  // TODO
 }
 
 func (self *TestEnv) createTemporaryDir() {
@@ -198,15 +213,22 @@ func TestBasic(t *testing.T) {
 
   t.Logf("Test server ready at %s", dts.URL)
 
-  url := fmt.Sprintf("%s/test/test.txt", dts.URL)
+  bucketUrl := fmt.Sprintf("%s/test", dts.URL)
+  url := fmt.Sprintf("%s/test.txt", bucketUrl)
   res, _ := client.Get(url)
   if res.StatusCode != 404 {
     t.Errorf("GET on non-existent URL %s: want 404, got %d", url, res.StatusCode)
   }
 
+  req, err := http.NewRequest("PUT", bucketUrl, nil)
+  res, _ = client.Do(req)
+  if res.StatusCode != 201 {
+    t.Errorf("PUT %s: want 201, got %d", bucketUrl, res.StatusCode)
+  }
+
   _, filename, _, _ := runtime.Caller(1)
   file, err := os.Open(filename)
-  req, err := http.NewRequest("PUT", url, file)
+  req, err = http.NewRequest("PUT", url, file)
   res, _ = client.Do(req)
   if res.StatusCode != 204 {
     t.Errorf("PUT %s: want 204, got %d", url, res.StatusCode)

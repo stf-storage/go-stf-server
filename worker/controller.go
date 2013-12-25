@@ -4,10 +4,10 @@ import (
   "database/sql"
   "flag"
   "fmt"
+  "github.com/stf-storage/go-stf-server"
   "log"
   "os"
   "os/signal"
-  "stf"
   "sync"
   "syscall"
 )

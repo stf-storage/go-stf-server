@@ -40,7 +40,7 @@ EXECUTABLES="
 "
 for executable in $EXECUTABLES; do
   echo "Building bin/$executable"
-  go build -a -o bin/$executable src/cli/$executable.go
+  go build -a -o bin/$executable cli/$executable.go
 done
 
 echo "Build done"

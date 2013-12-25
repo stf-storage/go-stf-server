@@ -3,7 +3,7 @@ package worker
 import (
   "database/sql"
   "fmt"
-  "stf"
+  "github.com/stf-storage/go-stf-server"
 )
 
 type WorkerContext struct {

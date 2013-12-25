@@ -2,10 +2,10 @@ package worker
 
 import (
   "database/sql"
+  "github.com/stf-storage/go-stf-server"
   "log"
   "math/rand"
   "reflect"
-  "stf"
   "sync"
   "time"
 )
