@@ -1,6 +1,8 @@
 go-stf-server
 =============
 
+[![Build Status](https://travis-ci.org/stf-storage/go-stf-server.png?branch=master)](https://travis-ci.org/stf-storage/go-stf-server)
+
 Go Implementation of STF Distributed Object Store
 
 # Current Status
