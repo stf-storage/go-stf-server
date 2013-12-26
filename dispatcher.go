@@ -331,7 +331,7 @@ func (self *Dispatcher) DeleteObject (ctx *RequestContext, bucketName string, ob
     return &HTTPResponse { Code : 500, Message: "Failed to delete object" }
   }
 
-  return nil
+  return HTTPNoContent
 }
 
 func (self *Dispatcher) DeleteBucket (ctx *RequestContext, bucketName string) *HTTPResponse {

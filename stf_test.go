@@ -305,10 +305,34 @@ func TestBasic(t *testing.T) {
     t.Errorf("Failed to stat %s: %s", filename, err)
   }
 
-  req, err = http.NewRequest("PUT", url, file)
+  req, _ = http.NewRequest("PUT", url, file)
   req.ContentLength = fi.Size()
   res, _ = client.Do(req)
   if res.StatusCode != 201 {
     t.Errorf("PUT %s: want 201, got %d", url, res.StatusCode)
   }
+
+  req, _ = http.NewRequest("GET", url, nil)
+  res, _ = client.Do(req)
+  if res.StatusCode != 200 {
+    t.Errorf("GET %s: want 200, got %d", url, res.StatusCode)
+  }
+
+  if res.Header.Get("X-Reproxy-URL") == "" {
+    t.Errorf("GET %s: want X-Reproxy-URL, got empty", url)
+  }
+
+/* TODO
+  req, _ = http.NewRequest("DELETE", url, nil)
+  res, _ = client.Do(req)
+  if res.StatusCode != 204 {
+    t.Errorf("DELETE %s: want 204, got %d", url, res.StatusCode)
+  }
+
+  req, _ = http.NewRequest("GET", url, nil)
+  res, _ = client.Do(req)
+  if res.StatusCode != 404 {
+    t.Errorf("GET %s (after delete): want 404, got %d", url, res.StatusCode)
+  }
+*/
 }
