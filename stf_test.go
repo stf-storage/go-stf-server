@@ -7,6 +7,7 @@ import (
   "io/ioutil"
   "log"
   "os"
+  "os/exec"
   "path/filepath"
   "net/http"
   "net/http/httptest"
@@ -42,6 +43,7 @@ func NewTestEnv (t *testing.T) (*TestEnv) {
 func (self *TestEnv) Setup () {
   self.createTemporaryDir()
   self.startDatabase()
+  self.startMemcached()
   self.createTemporaryConfig()
   self.startTemporaryStorageServers()
 }
@@ -74,6 +76,26 @@ func AssertDir(dir string) {
   if err != nil {
     panic(fmt.Sprintf("Failed to create directory %s: %s", dir, err))
   }
+}
+
+func (self *TestEnv) startMemcached()  {
+  // Super hackish dummy memcached starter
+  cmd := exec.Command(
+    "memcached",
+    "-vv",
+    "-p",
+    "11211",
+  )
+  go func() {
+    err := cmd.Run()
+    if err != nil {
+      self.Test.Errorf("Failed to run memcached: %s", err)
+    }
+  }()
+
+  self.Guards = append(self.Guards, func() {
+    cmd.Process.Kill()
+  })
 }
 
 func (self *TestEnv) startDatabase()  {
@@ -183,6 +205,10 @@ func (self *TestEnv) createTemporaryConfig() {
 Username=%s
 ConnectString=%s
 Dbname=%s
+
+[Memcached]
+Servers = 127.0.0.1:11211
+
 `,
     self.MysqlConfig.Username,
     self.MysqlConfig.ConnectString,
@@ -282,7 +308,7 @@ func TestBasic(t *testing.T) {
   req, err = http.NewRequest("PUT", url, file)
   req.ContentLength = fi.Size()
   res, _ = client.Do(req)
-  if res.StatusCode != 204 {
-    t.Errorf("PUT %s: want 204, got %d", url, res.StatusCode)
+  if res.StatusCode != 201 {
+    t.Errorf("PUT %s: want 201, got %d", url, res.StatusCode)
   }
 }
