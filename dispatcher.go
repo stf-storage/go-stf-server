@@ -15,16 +15,17 @@ import (
   "strings"
   "strconv"
   "github.com/braintree/manners"
-  _ "github.com/lestrrat/go-apache-logformat"
-  _ "github.com/lestrrat/go-file-rotatelogs"
+  "github.com/lestrrat/go-apache-logformat"
+  "github.com/lestrrat/go-file-rotatelogs"
   "github.com/lestrrat/go-server-starter-listener"
 )
 
 type Dispatcher struct {
-  Address string
-  Ctx            *GlobalContext
-  ResponseWriter *http.ResponseWriter
-  Request        *http.Request
+  Address         string
+  Ctx             *GlobalContext
+  ResponseWriter  *http.ResponseWriter
+  Request         *http.Request
+  logger          *apachelog.ApacheLog
 }
 
 func BootstrapDispatcher(ctx *GlobalContext) (*Dispatcher, error) {
@@ -40,6 +41,17 @@ func NewDispatcher(ctx *GlobalContext, id uint64, addr *string) *Dispatcher {
     d.Address = ":8080"
   }
   d.Ctx = ctx
+  d.logger = apachelog.CombinedLog.Clone()
+
+  cfg := ctx.Config()
+  if filename := cfg.Dispatcher.AccessLog; filename != "" {
+    rl := rotatelogs.NewRotateLogs(filename)
+    if linkname := cfg.Dispatcher.AccessLogLink; linkname != "" {
+      rl.LinkName = linkname
+    }
+    d.logger.SetOutput(rl)
+  }
+
   return d
 }
 
@@ -77,6 +89,9 @@ func (self *Dispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
   closer := ctx.LogMark("[%s %s]", r.Method, r.URL.Path)
   defer closer()
+
+  lw := apachelog.NewLoggingWriter(w, r, self.logger)
+  defer lw.EmitLog()
 
   // Generic catch-all handler
   defer func() {

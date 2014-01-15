@@ -4,6 +4,8 @@ Debug = true
 [Dispatcher]
 ServerId = 1
 Listen   = :8080
+AccessLog = accesslog.%Y%m%d
+AccessLogLink = accesslog
 
 [MainDB]
 Username = root

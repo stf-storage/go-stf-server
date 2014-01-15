@@ -13,8 +13,10 @@ type GlobalConfig struct {
 }
 
 type DispatcherConfig struct {
-  ServerId  uint64
-  Listen    string
+  ServerId      uint64
+  Listen        string
+  AccessLog     string // /path/to/accesslog.%Y%m%d
+  AccessLogLink string // /path/to/accesslog
 }
 
 type DatabaseConfig struct {
