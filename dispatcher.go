@@ -8,7 +8,6 @@ import (
   "io/ioutil"
   "log"
   "math/rand"
-  "net"
   "net/http"
   "regexp"
   "runtime"
@@ -16,6 +15,8 @@ import (
   "strings"
   "strconv"
   "github.com/braintree/manners"
+  _ "github.com/lestrrat/go-apache-logformat"
+  _ "github.com/lestrrat/go-file-rotatelogs"
   "github.com/lestrrat/go-server-starter-listener"
 )
 
@@ -55,27 +56,9 @@ func (self *Dispatcher) Start () {
   }
 
   // Work with Server::Stareter
-  portmap, err := ss.Ports()
-  var baseListener net.Listener
-  // Ignore err
-  if err == nil {
-    pm := portmap[0]
-    self.Debugf("Starting server at %s (start_server)", pm.Name)
-    baseListener, err = ss.NewListenerOn(pm)
-    if err != nil {
-      log.Printf("Failed to listen to start_server fd: %s", err)
-      log.Printf("Continuing on to listen on regular address")
-    }
-  }
-
-  if baseListener == nil {
-    // either we didn't start with start_server enabled, or
-    // we failed to listen to the fd that start_server provided us
-    self.Debugf("Starting server at %s\n", self.Address)
-    baseListener, err = net.Listen("tcp", self.Address)
-    if err != nil {
-      panic(fmt.Sprintf("Failed to listen at %s: %s", self.Address, err))
-    }
+  baseListener, err := ss.NewListenerOrDefault("tcp", self.Address)
+  if err != nil {
+    panic(fmt.Sprintf("Failed to listen at %s: %s", self.Address, err))
   }
 
   s := manners.NewServer()
