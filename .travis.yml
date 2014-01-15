@@ -10,6 +10,8 @@ install:
     - go get github.com/braintree/manners
     - go get github.com/dustin/randbo
     - go get github.com/go-sql-driver/mysql
+    - go get github.com/lestrrat/go-apache-logformat
+    - go get github.com/lestrrat/go-file-rotatelogs
     - go get github.com/lestrrat/go-server-starter-listener
     - go get github.com/lestrrat/go-test-mysqld
     - go get github.com/vmihailenco/msgpack

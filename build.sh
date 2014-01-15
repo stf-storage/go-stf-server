@@ -13,6 +13,8 @@ DEPS="
   github.com/braintree/manners
   github.com/dustin/randbo
   github.com/go-sql-driver/mysql
+  github.com/lestrrat/go-apache-logformat
+  github.com/lestrrat/go-file-rotatelogs
   github.com/lestrrat/go-server-starter-listener
   github.com/lestrrat/go-test-mysqld
   github.com/vmihailenco/msgpack
