@@ -5,6 +5,10 @@ if [ -z "$GOPATH" ]; then
   GOPATH=`pwd`
 fi
 
+if [ -z "$STF_QUEUE_TYPE" ]; then
+  STF_QUEUE_TYPE=q4m
+fi
+
 export GOPATH
 
 DEPS="
@@ -42,7 +46,7 @@ EXECUTABLES="
 "
 for executable in $EXECUTABLES; do
   echo "Building bin/$executable"
-  go build -a -o bin/$executable cli/$executable.go
+  go build -tags $STF_QUEUE_TYPE -a -o bin/$executable cli/$executable.go
 done
 
 echo "Build done"

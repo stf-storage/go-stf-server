@@ -17,7 +17,7 @@ type WorkerLoopContext struct {
 
 func (self *WorkerContext) QueueApi() stf.QueueApiInterface {
   if self.QueueApiPtr == nil {
-    self.QueueApiPtr = stf.NewQueueApi(stf.QUEUE_Q4M, self)
+    self.QueueApiPtr = stf.NewQueueApi(self)
   }
   return self.QueueApiPtr
 }
@@ -121,7 +121,7 @@ func (self *WorkerLoopContext) ObjectApi() *stf.ObjectApi {
 
 func (self *WorkerLoopContext) QueueApi() stf.QueueApiInterface {
   if self.QueueApiPtr == nil {
-    self.QueueApiPtr = stf.NewQueueApi(stf.QUEUE_Q4M, self)
+    self.QueueApiPtr = stf.NewQueueApi(self)
   }
   return self.QueueApiPtr
 }

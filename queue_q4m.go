@@ -1,3 +1,5 @@
+// +build q4m
+
 package stf
 
 import (
@@ -14,6 +16,10 @@ func NewQ4MApi(ctx ContextForQueueApi) (*Q4MApi) {
   qidx := rand.Intn(max)
 
   return &Q4MApi { qidx, ctx }
+}
+
+func NewQueueApi(ctx ContextForQueueApi) (QueueApiInterface) {
+  return NewQ4MApi(ctx)
 }
 
 func (self *Q4MApi) Ctx() ContextForQueueApi {

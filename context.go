@@ -304,7 +304,7 @@ func (self *RequestContext) ObjectApi() *ObjectApi {
 
 func (self *RequestContext) QueueApi() QueueApiInterface {
   if self.QueueApiPtr == nil {
-    self.QueueApiPtr = NewQueueApi(QUEUE_Q4M, self)
+    self.QueueApiPtr = NewQueueApi(self)
   }
   return self.QueueApiPtr
 }
