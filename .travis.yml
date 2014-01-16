@@ -17,3 +17,12 @@ install:
     - go get github.com/vmihailenco/msgpack
 script:
     - STF_DEBUG=1:`pwd`/test.log go test -v . || (cat `pwd`/test.log && exit 1)
+after_success:
+    - go get github.com/mattn/goveralls
+    - go get github.com/axw/gocov/gocov
+    - go get code.google.com/p/go.tools/cmd/cover
+    - export PATH="$HOME/gopath/bin:$PATH"
+    - goveralls $COVERALLS_TOKEN
+env:
+    global:
+        secure: "fhKD8yvdUoK5JJhSe4wte+spwUIg8C6VQqpYh31thL9DyfeuYvGC6JwWlEkm92XKTrKe+uJYICh5TlJSI+t3VNNwPV8CsQp+qlzn1MWjnfz9lj7/gfN62Hd4j9cQKeHlDQi2MdfGR0Eq3LcyB4yvZoLGtvoN18W9SQUSp7xJDvM="
