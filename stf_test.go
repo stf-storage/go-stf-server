@@ -24,6 +24,7 @@ type TestEnv struct {
   ConfigFile  *os.File
   Mysqld      *mysqltest.TestMysqld
   MysqlConfig *DatabaseConfig
+  QueueConfig *DatabaseConfig
 }
 
 type TestDatabase struct {
@@ -46,6 +47,7 @@ func (self *TestEnv) Setup () {
   self.startMemcached()
   self.createTemporaryConfig()
   self.startTemporaryStorageServers()
+  self.startWorkers()
 }
 
 func (self *TestEnv) Release () {
@@ -111,14 +113,20 @@ func (self *TestEnv) startDatabase()  {
   self.Mysqld = mysqld
 
   time.Sleep(2 * time.Second)
-  config := &DatabaseConfig {
+  self.MysqlConfig = &DatabaseConfig {
     "mysql",
     "root",
     "",
     fmt.Sprintf("tcp(%s:%d)", mysqld.Config.BindAddress, mysqld.Config.Port),
     "test",
   }
-  self.MysqlConfig = config
+  self.QueueConfig = &DatabaseConfig {
+    "mysql",
+    "root",
+    "",
+    fmt.Sprintf("tcp(%s:%d)", mysqld.Config.BindAddress, mysqld.Config.Port),
+    "test_queue",
+  }
 
   self.Guards = append(self.Guards, func() {
     if mysqld := self.Mysqld; mysqld != nil {
@@ -126,7 +134,7 @@ func (self *TestEnv) startDatabase()  {
     }
   })
 
-  _, err = ConnectDB(config)
+  _, err = ConnectDB(self.MysqlConfig)
   if err != nil {
     t := self.Test
     t.Errorf("Failed to connect to database: %s", err)
@@ -136,6 +144,7 @@ func (self *TestEnv) startDatabase()  {
   self.Test.Logf("Database files in %s", mysqld.BaseDir())
 
   self.createDatabase()
+  self.createQueue()
 }
 
 func (self *TestEnv) createDatabase() {
@@ -177,6 +186,22 @@ func (self *TestEnv) createDatabase() {
       t.FailNow()
     }
     strbuf = strbuf[i+1:len(strbuf)-1]
+  }
+}
+
+func (self *TestEnv) createQueue() {
+  t := self.Test
+
+  db, err := ConnectDB(self.MysqlConfig)
+  if err != nil {
+    t.Errorf("Failed to connect to database: %s", err)
+    t.FailNow()
+  }
+
+  _, err = db.Exec("CREATE DATABASE test_queue")
+  if err != nil {
+    t.Errorf("Failed to create database test_queue: %s", err)
+    t.FailNow()
   }
 }
 
@@ -260,6 +285,25 @@ func (self *TestEnv) startTemporaryStorageServers() {
   }
 }
 
+func (self *TestEnv) startWorkers() {
+  workerCmd, err := exec.LookPath("bin/worker")
+  if err != nil {
+    log.Fatalf("Failed to find worker executable: %s", err)
+  }
+  cmd := exec.Command(workerCmd)
+
+  go func() {
+    err := cmd.Run()
+    if err != nil {
+      self.Test.Errorf("Failed to run memcached: %s", err)
+    }
+  }()
+
+  self.Guards = append(self.Guards, func() {
+    cmd.Process.Kill()
+  })
+}
+
 func TestBasic(t *testing.T) {
   env := NewTestEnv(t)
   defer env.Release()
@@ -322,7 +366,6 @@ func TestBasic(t *testing.T) {
     t.Errorf("GET %s: want X-Reproxy-URL, got empty", url)
   }
 
-/* TODO
   req, _ = http.NewRequest("DELETE", url, nil)
   res, _ = client.Do(req)
   if res.StatusCode != 204 {
@@ -334,5 +377,4 @@ func TestBasic(t *testing.T) {
   if res.StatusCode != 404 {
     t.Errorf("GET %s (after delete): want 404, got %d", url, res.StatusCode)
   }
-*/
 }

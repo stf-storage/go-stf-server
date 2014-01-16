@@ -8,16 +8,16 @@ import (
 
 type WorkerContext struct {
   stf.GlobalContext
-  QueueApiPtr *stf.QueueApi
+  QueueApiPtr stf.QueueApiInterface
 }
 type WorkerLoopContext struct {
   stf.LocalContext
 //  GlobalContextPtr *WorkerContext
 }
 
-func (self *WorkerContext) QueueApi() *stf.QueueApi {
+func (self *WorkerContext) QueueApi() stf.QueueApiInterface {
   if self.QueueApiPtr == nil {
-    self.QueueApiPtr = stf.NewQueueApi(self)
+    self.QueueApiPtr = stf.NewQueueApi(stf.QUEUE_Q4M, self)
   }
   return self.QueueApiPtr
 }
@@ -119,9 +119,9 @@ func (self *WorkerLoopContext) ObjectApi() *stf.ObjectApi {
   return self.ObjectApiPtr
 }
 
-func (self *WorkerLoopContext) QueueApi() *stf.QueueApi {
+func (self *WorkerLoopContext) QueueApi() stf.QueueApiInterface {
   if self.QueueApiPtr == nil {
-    self.QueueApiPtr = stf.NewQueueApi(self)
+    self.QueueApiPtr = stf.NewQueueApi(stf.QUEUE_Q4M, self)
   }
   return self.QueueApiPtr
 }

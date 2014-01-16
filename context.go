@@ -20,7 +20,7 @@ type ApiHolder interface {
   DeletedObjectApi()  *DeletedObjectApi
   EntityApi()   *EntityApi
   ObjectApi()   *ObjectApi
-  QueueApi()    *QueueApi
+  QueueApi()    QueueApiInterface
   StorageApi()  *StorageApi
   StorageClusterApi() *StorageClusterApi
 }
@@ -77,7 +77,7 @@ type LocalContext struct {
   DeletedObjectApiPtr  *DeletedObjectApi
   EntityApiPtr         *EntityApi
   ObjectApiPtr         *ObjectApi
-  QueueApiPtr          *QueueApi
+  QueueApiPtr          QueueApiInterface
   StorageApiPtr        *StorageApi
   StorageClusterApiPtr *StorageClusterApi
   GlobalContextPtr     Context
@@ -302,9 +302,9 @@ func (self *RequestContext) ObjectApi() *ObjectApi {
   return self.ObjectApiPtr
 }
 
-func (self *RequestContext) QueueApi() *QueueApi {
+func (self *RequestContext) QueueApi() QueueApiInterface {
   if self.QueueApiPtr == nil {
-    self.QueueApiPtr = NewQueueApi(self)
+    self.QueueApiPtr = NewQueueApi(QUEUE_Q4M, self)
   }
   return self.QueueApiPtr
 }

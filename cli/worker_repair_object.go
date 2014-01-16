@@ -5,7 +5,9 @@ import (
 )
 
 func main() {
+  ctx := worker.NewWorkerContext()
   controller := worker.NewWorkerControllerFromArgv(
+    ctx,
     "RepairObject",
     "queue_repair_object",
     worker.NewRepairObjectWorker,

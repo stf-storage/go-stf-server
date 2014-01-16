@@ -14,6 +14,7 @@ import (
 
 type WorkerCommChannel chan WorkerCommand
 type HandlerArgs struct {
+  Ctx     *WorkerContext
   Id      string
   MaxJobs int
   JobChan chan *stf.WorkerArg
@@ -23,6 +24,7 @@ type HandlerArgs struct {
 
 type CreateHandlerFunc func(*HandlerArgs) WorkerCommChannel
 type WorkerController struct {
+  Ctx                 *WorkerContext
   Name                string
   Config              *stf.Config
   MainDB              *sql.DB
@@ -41,6 +43,7 @@ type WorkerController struct {
 }
 
 func NewWorkerControllerFromArgv(
+  ctx *WorkerContext,
   name string,
   tablename string,
   createHandlerFunc CreateHandlerFunc,
@@ -58,6 +61,7 @@ func NewWorkerControllerFromArgv(
   flag.Parse()
 
   return NewWorkerController(
+    ctx,
     name,
     droneId,
     tablename,
@@ -69,6 +73,7 @@ func NewWorkerControllerFromArgv(
 }
 
 func NewWorkerController (
+  ctx *WorkerContext,
   name string,
   droneId string,
   tablename string,
@@ -98,6 +103,7 @@ func NewWorkerController (
   switch name {
   case "DeleteObject", "RepairObject":
     fetcher = NewWorkerFetcher(
+      ctx,
       name,
       cfg,
       jobChan,
@@ -108,6 +114,7 @@ func NewWorkerController (
   }
 
   return &WorkerController {
+    ctx,
     name,
 
     cfg,
@@ -281,6 +288,7 @@ func (self *WorkerController) Respawn() {
   for i := 0; i < diff; i++ {
     id := stf.GenerateRandomId(self.Name, 40)
     args := &HandlerArgs{
+      self.Ctx,
       id,
       self.MaxJobsPerWorker,
       self.JobChan,

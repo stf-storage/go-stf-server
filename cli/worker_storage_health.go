@@ -5,7 +5,9 @@ import (
 )
 
 func main() {
+  ctx := worker.NewWorkerContext()
   controller := worker.NewWorkerControllerFromArgv(
+    ctx,
     "StorageHealth",
     "",
     worker.NewStorageHealthWorker,

@@ -100,7 +100,7 @@ func NewDynamicWorker(workerType reflect.Type, args *HandlerArgs) interface {} {
 
   privateChan := make(WorkerCommChannel, 1)
   v.FieldByName("Id").SetString(args.Id)
-  v.FieldByName("Ctx").Set(reflect.ValueOf(NewWorkerContext()))
+  v.FieldByName("Ctx").Set(reflect.ValueOf(args.Ctx))
   v.FieldByName("MaxJobs").SetInt(int64(args.MaxJobs))
   v.FieldByName("ControlChan").Set(reflect.ValueOf(args.ControlChan))
   v.FieldByName("PrivateChan").Set(reflect.ValueOf(privateChan))
