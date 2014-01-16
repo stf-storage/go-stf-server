@@ -3,6 +3,8 @@ go-stf-server
 
 [![Build Status](https://travis-ci.org/stf-storage/go-stf-server.png?branch=master)](https://travis-ci.org/stf-storage/go-stf-server)
 
+[![Coverage Status](https://coveralls.io/repos/stf-storage/go-stf-server/badge.png)](https://coveralls.io/r/stf-storage/go-stf-server)
+
 Go Implementation of STF Distributed Object Store
 
 # Current Status
