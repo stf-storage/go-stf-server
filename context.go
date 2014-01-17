@@ -34,8 +34,6 @@ type DebugWriter interface {
 type Context interface {
   Config()      *Config
   MainDB()      (*sql.DB, error)
-  QueueDB(int)  (*sql.DB, error)
-  NumQueueDB()  int
 
   Cache()       (*MemdClient)
 
@@ -56,7 +54,6 @@ type ContextWithApi interface {
 
 type BaseContext struct {
   DebugLogPtr     *DebugLog
-  NumQueueDBCount int
   TxnPtr          *sql.Tx
   TxnCommited     bool
 }
@@ -67,7 +64,6 @@ type GlobalContext struct {
   ConfigPtr       *Config
   CachePtr        *MemdClient
   MainDBPtr       *sql.DB
-  QueueDBPtrList  []*sql.DB
   IdgenPtr        *UUIDGen
 }
 
@@ -90,7 +86,6 @@ type RequestContext struct {
 }
 
 // BaseContext
-func (self *BaseContext) NumQueueDB() int       { return self.NumQueueDBCount }
 func (self *BaseContext) DebugLog()   *DebugLog { return self.DebugLogPtr }
 
 func (self *BaseContext) Debugf(format string, args ...interface {}) {
@@ -149,8 +144,6 @@ func BootstrapContext() (*GlobalContext, error) {
   }
 
   ctx.ConfigPtr = cfg
-  ctx.NumQueueDBCount = len(cfg.QueueDBList)
-  ctx.QueueDBPtrList = make([]*sql.DB, ctx.NumQueueDBCount)
   ctx.IdgenPtr = NewIdGenerator(cfg.Dispatcher.ServerId)
 
   var dbgOutput  io.Writer = os.Stderr
@@ -206,29 +199,8 @@ func (self *GlobalContext) MainDB() (*sql.DB, error) {
   return self.MainDBPtr, nil
 }
 
-// Gets the i-th Queue DB
-func (self *GlobalContext) QueueDB(i int) (*sql.DB, error) {
-  if self.QueueDBPtrList[i] == nil {
-    config := self.Config().QueueDBList[i]
-    db, err := ConnectDB(config)
-    if err != nil {
-      return nil, err
-    }
-    self.QueueDBPtrList[i] = db
-  }
-  return self.QueueDBPtrList[i], nil
-}
-
 func (self *RequestContext) MainDB() (*sql.DB, error) {
   return self.GlobalContext().MainDB()
-}
-
-func (self *RequestContext) QueueDB(i int) (*sql.DB, error) {
-  return self.GlobalContext().QueueDB(i)
-}
-
-func (self *RequestContext) NumQueueDB() int {
-  return self.GlobalContext().NumQueueDB()
 }
 
 func (self *GlobalContext) IdGenerator() *UUIDGen {

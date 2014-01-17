@@ -60,6 +60,7 @@ func NewWorkerControllerFromArgv(
   flag.IntVar(&maxJobsPerWorker, "max-jobs-per-worker", 1000, "Number of jobs that each goroutine processes until exiting")
   flag.Parse()
 
+  os.Setenv("STF_CONFIG", configfile)
   return NewWorkerController(
     ctx,
     name,
@@ -85,7 +86,7 @@ func NewWorkerController (
   home := stf.GetHome()
   cfg, err := stf.LoadConfig(home)
   if err != nil {
-    log.Fatalf("Failed to config: %s", err)
+    log.Fatalf("Controller: Failed to load config: %s", err)
   }
 
   db, err := stf.ConnectDB(&cfg.MainDB)

@@ -1,17 +1,12 @@
 package stf
 
-import (
-  "database/sql"
-)
-
 type WorkerArg struct {
   Arg string
   CreatedAt int
 }
 
 type ContextForQueueApi interface {
-  NumQueueDB() int
-  QueueDB(int) (*sql.DB, error)
+  Config() *Config
   Debugf(string, ...interface{})
   LogMark(string, ...interface{}) func()
 }
@@ -25,3 +20,4 @@ type BaseQueueApi struct {
   currentQueue int
   ctx ContextForQueueApi
 }
+

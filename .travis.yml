@@ -15,8 +15,8 @@ install:
     - go get github.com/lestrrat/go-server-starter-listener
     - go get github.com/lestrrat/go-test-mysqld
     - go get github.com/vmihailenco/msgpack
+    - go get github.com/vmihailenco/redis/v2
 script:
-    - export STF_QUEUE_TYPE=q4m
     - sh test.sh || (cat `pwd`/test.log && exit 1)
 after_success:
     - go get github.com/mattn/goveralls
@@ -27,3 +27,5 @@ after_success:
 env:
     global:
         secure: "fhKD8yvdUoK5JJhSe4wte+spwUIg8C6VQqpYh31thL9DyfeuYvGC6JwWlEkm92XKTrKe+uJYICh5TlJSI+t3VNNwPV8CsQp+qlzn1MWjnfz9lj7/gfN62Hd4j9cQKeHlDQi2MdfGR0Eq3LcyB4yvZoLGtvoN18W9SQUSp7xJDvM="
+    matrix:
+        - STF_QUEUE_TYPE=redis

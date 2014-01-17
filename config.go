@@ -1,6 +1,8 @@
 package stf
 
 import(
+  "errors"
+  "fmt"
   "log"
   "os"
   "path"
@@ -39,8 +41,8 @@ type Config struct {
   Global      GlobalConfig
   MainDB      DatabaseConfig
   Memcached   MemcachedConfig
-  QueueDB     map[string]*DatabaseConfig
-  QueueDBList []*DatabaseConfig
+  QueueDB     map[string]*QueueConfig
+  QueueDBList []*QueueConfig
 }
 
 func LoadConfig (home string) (*Config, error) {
@@ -56,10 +58,16 @@ func LoadConfig (home string) (*Config, error) {
 
   err := gcfg.ReadFileInto(cfg, file)
   if err != nil {
-    return nil, err
+    return nil, errors.New(
+      fmt.Sprintf(
+        "Failed to load config file '%s': %s",
+        file,
+        err,
+      ),
+    )
   }
 
-  list := []*DatabaseConfig {}
+  list := []*QueueConfig {}
   for k, _ := range cfg.QueueDB {
     list = append(list, cfg.QueueDB[k])
   }

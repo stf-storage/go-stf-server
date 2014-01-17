@@ -1,7 +1,9 @@
 #!/bin/sh
 
-export SKIP_DEPS=1
-sh ./build.sh
+if [ -z "$SKIP_BUILD" ]; then
+  export SKIP_DEPS=1
+  sh ./build.sh
+fi
 
 if [ -z "$STF_QUEUE_TYPE" ]; then
   STF_QUEUE_TYPE=q4m

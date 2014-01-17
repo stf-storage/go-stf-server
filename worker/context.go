@@ -41,18 +41,6 @@ func (self *WorkerContext) MainDB() (*sql.DB, error) {
   return self.MainDBPtr, nil
 }
 
-func (self *WorkerContext) QueueDB(i int) (*sql.DB, error) {
-  if self.QueueDBPtrList[i] == nil {
-    config := self.Config().QueueDBList[i]
-    db, err := stf.ConnectDB(config)
-    if err != nil {
-      return nil, err
-    }
-    self.QueueDBPtrList[i] = db
-  }
-  return self.QueueDBPtrList[i], nil
-}
-
 func (self *WorkerContext) NewLoopContext() *WorkerLoopContext {
   rc := &WorkerLoopContext {
     stf.LocalContext{ GlobalContextPtr: self },
@@ -77,14 +65,6 @@ func (self *WorkerLoopContext) Config() *stf.Config {
 
 func (self *WorkerLoopContext) MainDB() (*sql.DB, error) {
   return self.GlobalContext().MainDB()
-}
-
-func (self *WorkerLoopContext) QueueDB(i int) (*sql.DB, error) {
-  return self.GlobalContext().QueueDB(i)
-}
-
-func (self *WorkerLoopContext) NumQueueDB() int {
-  return 0
 }
 
 func (self *WorkerLoopContext) Cache() *stf.MemdClient {

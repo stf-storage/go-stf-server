@@ -51,10 +51,12 @@ func NewDroneFromArgv () (*WorkerDrone) {
   flag.StringVar(&configname, "config", "etc/config.gcfg", "config file path")
   flag.Parse()
 
+  os.Setenv("STF_CONFIG", configname)
+
   home := stf.GetHome()
   cfg, err := stf.LoadConfig(home)
   if err != nil {
-    log.Fatalf("Failed to config: %s", err)
+    log.Fatalf("Drone: Failed to load config: %s", err)
   }
 
   return NewDrone(cfg)
@@ -502,6 +504,8 @@ func (self *WorkerDrone) SpawnWorkerUnit (t *WorkerUnitDef) (*exec.Cmd, error) {
     "--drone",
     self.Id,
   )
+
+  log.Printf("Starting command %v", cmd.Args)
 
   // We want the output from our child processes, too!
   stderrpipe, err := cmd.StderrPipe()

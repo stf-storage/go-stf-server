@@ -23,6 +23,7 @@ if [ -z "$SKIP_DEPS" ]; then
     github.com/lestrrat/go-server-starter-listener
     github.com/lestrrat/go-test-mysqld
     github.com/vmihailenco/msgpack
+    github.com/vmihailenco/redis/v2
   "
   for dep in $DEPS; do
     OIFS=$IFS

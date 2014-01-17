@@ -1,6 +1,7 @@
 package stf
 
 import (
+  "bufio"
   "fmt"
   "github.com/lestrrat/go-test-mysqld"
   "io"
@@ -24,7 +25,7 @@ type TestEnv struct {
   ConfigFile  *os.File
   Mysqld      *mysqltest.TestMysqld
   MysqlConfig *DatabaseConfig
-  QueueConfig *DatabaseConfig
+  QueueConfig *QueueConfig
 }
 
 type TestDatabase struct {
@@ -44,6 +45,7 @@ func NewTestEnv (t *testing.T) (*TestEnv) {
 func (self *TestEnv) Setup () {
   self.createTemporaryDir()
   self.startDatabase()
+  self.startQueue()
   self.startMemcached()
   self.createTemporaryConfig()
   self.startTemporaryStorageServers()
@@ -58,6 +60,11 @@ func (self *TestEnv) Release () {
 
 func (self *TestEnv) Errorf(format string, args ...interface {}) {
   self.Test.Errorf(format, args...)
+}
+
+func (self *TestEnv) FailNow(format string, args ...interface {}) {
+  self.Test.Errorf(format, args...)
+  self.Test.FailNow()
 }
 
 func (self *TestEnv) Logf(format string, args ...interface {}) {
@@ -80,24 +87,68 @@ func AssertDir(dir string) {
   }
 }
 
+func (self *TestEnv) AddGuard(cb func()) {
+  self.Guards = append(self.Guards, cb)
+}
+
 func (self *TestEnv) startMemcached()  {
-  // Super hackish dummy memcached starter
-  cmd := exec.Command(
-    "memcached",
-    "-vv",
-    "-p",
-    "11211",
-  )
+  self.startBackground("memcached", "-p", "11211")
+}
+
+func (self *TestEnv) startBackground(cmdname string, args ...string) {
+  path, err := exec.LookPath(cmdname)
+  if err != nil {
+    self.FailNow("Failed to find %s executable: %s", cmdname, err)
+  }
+
+  cmd := exec.Command(path, args...)
+
+  stderrpipe, err := cmd.StderrPipe()
+  if err != nil {
+    self.FailNow("Failed to open pipe to stderr")
+  }
+  stdoutpipe, err := cmd.StdoutPipe()
+  if err != nil {
+    self.FailNow("Failed to open pipe to stdout")
+  }
+  pipes := []struct {
+    Out *os.File
+    Rdr *bufio.Reader
+  } {
+    { os.Stdout, bufio.NewReader(stdoutpipe) },
+    { os.Stderr, bufio.NewReader(stderrpipe) },
+  }
+
+  self.Logf("Starting command %v", cmd.Args)
+  err = cmd.Start()
+  if err != nil {
+    self.FailNow("Failed to start %s: %s", cmdname, err)
+  }
+  killed := false
+  for _, p := range pipes {
+    go func(out *os.File, in *bufio.Reader) {
+      for !killed {
+        str, err := in.ReadBytes('\n')
+        if str != nil {
+          out.Write(str)
+          out.Sync()
+        }
+
+        if err != nil {
+          break
+        }
+      }
+    }(p.Out, p.Rdr)
+  }
+
   go func() {
-    err := cmd.Run()
-    if err != nil {
-      self.Test.Errorf("Failed to run memcached: %s", err)
+    err := cmd.Wait()
+    if !killed && err != nil {
+      self.Logf("Failed to wait for %s: %s", cmdname, err)
     }
   }()
 
-  self.Guards = append(self.Guards, func() {
-    cmd.Process.Kill()
-  })
+  self.AddGuard(func() { cmd.Process.Kill(); killed = true })
 }
 
 func (self *TestEnv) startDatabase()  {
@@ -106,9 +157,7 @@ func (self *TestEnv) startDatabase()  {
   mycnf.Port = 3306
   mysqld, err := mysqltest.NewMysqld(mycnf)
   if err != nil {
-    t := self.Test
-    t.Errorf("Failed to start mysqld: %s", err)
-    t.FailNow()
+    self.FailNow("Failed to start mysqld: %s", err)
   }
   self.Mysqld = mysqld
 
@@ -120,13 +169,6 @@ func (self *TestEnv) startDatabase()  {
     fmt.Sprintf("tcp(%s:%d)", mysqld.Config.BindAddress, mysqld.Config.Port),
     "test",
   }
-  self.QueueConfig = &DatabaseConfig {
-    "mysql",
-    "root",
-    "",
-    fmt.Sprintf("tcp(%s:%d)", mysqld.Config.BindAddress, mysqld.Config.Port),
-    "test_queue",
-  }
 
   self.Guards = append(self.Guards, func() {
     if mysqld := self.Mysqld; mysqld != nil {
@@ -136,38 +178,29 @@ func (self *TestEnv) startDatabase()  {
 
   _, err = ConnectDB(self.MysqlConfig)
   if err != nil {
-    t := self.Test
-    t.Errorf("Failed to connect to database: %s", err)
-    t.FailNow()
+    self.FailNow("Failed to connect to database: %s", err)
   }
 
-  self.Test.Logf("Database files in %s", mysqld.BaseDir())
-
+  self.Logf("Database files in %s", mysqld.BaseDir())
   self.createDatabase()
-  self.createQueue()
 }
 
 func (self *TestEnv) createDatabase() {
   // Read from DDL file, each statement (delimited by ";")
   // then execute each statement via db.Exec()
-  t := self.Test
-
   db, err := ConnectDB(self.MysqlConfig)
   if err != nil {
-    t.Errorf("Failed to connect to database: %s", err)
-    t.FailNow()
+    self.FailNow("Failed to connect to database: %s", err)
   }
 
   file, err := os.Open("stf.sql")
   if err != nil {
-    t.Errorf("Failed to read DDL: %s", err)
-    t.FailNow()
+    self.FailNow("Failed to read DDL: %s", err)
   }
 
   fi, err := file.Stat()
   if err != nil {
-    t.Errorf("Failed to stat file: %s", err)
-    t.FailNow()
+    self.FailNow("Failed to stat file: %s", err)
   }
 
   buf := make([]byte, fi.Size())
@@ -182,33 +215,16 @@ func (self *TestEnv) createDatabase() {
     stmt := strbuf[0:i]
     _, err = db.Exec(stmt)
     if err != nil {
-      t.Errorf("Failed to execute SQL: %s", err)
-      t.FailNow()
+      self.FailNow("Failed to execute SQL: %s", err)
     }
     strbuf = strbuf[i+1:len(strbuf)-1]
-  }
-}
-
-func (self *TestEnv) createQueue() {
-  t := self.Test
-
-  db, err := ConnectDB(self.MysqlConfig)
-  if err != nil {
-    t.Errorf("Failed to connect to database: %s", err)
-    t.FailNow()
-  }
-
-  _, err = db.Exec("CREATE DATABASE test_queue")
-  if err != nil {
-    t.Errorf("Failed to create database test_queue: %s", err)
-    t.FailNow()
   }
 }
 
 func (self *TestEnv) createTemporaryDir() {
   tempdir, err := ioutil.TempDir("", "stf-test");
   if err != nil {
-    self.Errorf("Failed to create a temporary directory: %s", err)
+    self.FailNow("Failed to create a temporary directory: %s", err)
   }
 
   self.WorkDir = tempdir
@@ -221,7 +237,7 @@ func (self *TestEnv) createTemporaryDir() {
 func (self *TestEnv) createTemporaryConfig() {
   tempfile, err := ioutil.TempFile(self.WorkDir, "test.gcfg")
   if err != nil {
-    self.Errorf("Failed to create tempfile: %s", err)
+    self.FailNow("Failed to create tempfile: %s", err)
   }
 
   tempfile.WriteString(fmt.Sprintf(
@@ -239,6 +255,10 @@ Servers = 127.0.0.1:11211
     self.MysqlConfig.ConnectString,
     self.MysqlConfig.Dbname,
   ))
+
+
+  self.writeQueueConfig(tempfile)
+
   tempfile.Sync()
 
   self.Logf("Created config file %s", tempfile.Name())
@@ -286,22 +306,10 @@ func (self *TestEnv) startTemporaryStorageServers() {
 }
 
 func (self *TestEnv) startWorkers() {
-  workerCmd, err := exec.LookPath("bin/worker")
-  if err != nil {
-    log.Fatalf("Failed to find worker executable: %s", err)
-  }
-  cmd := exec.Command(workerCmd)
-
-  go func() {
-    err := cmd.Run()
-    if err != nil {
-      self.Test.Errorf("Failed to run memcached: %s", err)
-    }
-  }()
-
-  self.Guards = append(self.Guards, func() {
-    cmd.Process.Kill()
-  })
+  self.startBackground(
+    "bin/worker",
+    fmt.Sprintf("--config=%s", self.ConfigFile.Name()),
+  )
 }
 
 func TestBasic(t *testing.T) {

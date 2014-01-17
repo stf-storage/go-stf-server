@@ -3,23 +3,58 @@
 package stf
 
 import (
+  "database/sql"
   "errors"
   "fmt"
   "math/rand"
 )
 
-type Q4MApi BaseQueueApi
+type QueueConfig DatabaseConfig
+type Q4MApi struct {
+  BaseQueueApi
+  QueueDBPtrList  []*sql.DB
+}
+
+func (self *Q4MApi) NumQueueDB () int {
+  return len(self.QueueDBPtrList)
+}
 
 func NewQ4MApi(ctx ContextForQueueApi) (*Q4MApi) {
   // Find the number of queues, get a random queueIdx
-  max := ctx.NumQueueDB()
+  cfg := ctx.Config()
+  max := len(cfg.QueueDBList)
   qidx := rand.Intn(max)
 
-  return &Q4MApi { qidx, ctx }
+  return &Q4MApi { BaseQueueApi { qidx, ctx }, nil }
 }
 
+//  ctx.NumQueueDBCount = len(cfg.QueueDBList)
+//  ctx.QueueDBPtrList = make([]*sql.DB, ctx.NumQueueDBCount)
 func NewQueueApi(ctx ContextForQueueApi) (QueueApiInterface) {
   return NewQ4MApi(ctx)
+}
+
+func ConnectQueue(config *QueueConfig) (*sql.DB, error) {
+  return ConnectDB(&DatabaseConfig {
+    config.Dbtype,
+    config.Username,
+    config.Password,
+    config.ConnectString,
+    config.Dbname,
+  })
+}
+
+// Gets the i-th Queue DB
+func (self *Q4MApi) QueueDB(i int) (*sql.DB, error) {
+  if self.QueueDBPtrList[i] == nil {
+    config := self.ctx.Config().QueueDBList[i]
+    db, err := ConnectQueue(config)
+    if err != nil {
+      return nil, err
+    }
+    self.QueueDBPtrList[i] = db
+  }
+  return self.QueueDBPtrList[i], nil
 }
 
 func (self *Q4MApi) Ctx() ContextForQueueApi {
@@ -34,19 +69,19 @@ func (self *Q4MApi) Enqueue (queueName string, data string) error {
   closer := ctx.LogMark("[Q4MApi.Enqueue]")
   defer closer()
 
-  max := ctx.NumQueueDB()
+  max := self.NumQueueDB()
   done  := false
 
   sql   := fmt.Sprintf("INSERT INTO %s (args, created_at) VALUES (?, UNIX_TIMESTAMP())", queueName)
 
-  for i := 0; i < ctx.NumQueueDB(); i++ {
+  for i := 0; i < max; i++ {
     qidx := self.currentQueue
     self.currentQueue++
     if self.currentQueue >= max {
       self.currentQueue = 0
     }
 
-    db, err := ctx.QueueDB(qidx)
+    db, err := self.QueueDB(qidx)
     if err != nil {
       continue
     }
@@ -75,7 +110,7 @@ func (self *Q4MApi) Dequeue (queueName string, timeout int) (*WorkerArg, error) 
   closer := ctx.LogMark("[Q4MApi.Dequeue]")
   defer closer()
 
-  max := ctx.NumQueueDB()
+  max := self.NumQueueDB()
 
   sql := fmt.Sprintf("SELECT args, created_at FROM %s WHERE queue_wait('%s', ?)", queueName, queueName)
 
@@ -88,7 +123,7 @@ func (self *Q4MApi) Dequeue (queueName string, timeout int) (*WorkerArg, error) 
       self.currentQueue = 0
     }
 
-    db, err := ctx.QueueDB(qidx)
+    db, err := self.QueueDB(qidx)
     if err != nil {
       ctx.Debugf("Failed to retrieve QueueDB (%d): %s", qidx, err)
       // Ugh, try next one
