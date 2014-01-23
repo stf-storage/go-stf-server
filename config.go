@@ -67,9 +67,12 @@ func LoadConfig (home string) (*Config, error) {
     )
   }
 
-  list := []*QueueConfig {}
-  for k, _ := range cfg.QueueDB {
-    list = append(list, cfg.QueueDB[k])
+  l := len(cfg.QueueDB)
+  list := make([]*QueueConfig, l)
+  i := 0
+  for _, v := range cfg.QueueDB {
+    list[i] = v
+    i++
   }
   cfg.QueueDBList = list
   cfg.FileName = file
