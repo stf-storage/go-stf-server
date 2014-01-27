@@ -201,8 +201,12 @@ func parseObjectPath(path string) (string, string, error) {
 }
 
 func (self *Dispatcher) CreateBucket(ctx *DispatcherContext, bucketName string, objectName string) *HTTPResponse {
-  ctx.TxnBegin()
-  defer ctx.TxnRollback()
+  rollback, err := ctx.TxnBegin()
+  if err != nil {
+    Debugf("Failed to start transaction: %s", err)
+    return HTTPInternalServerError
+  }
+  defer rollback()
 
   closer := LogMark("[Dispatcher.CreateBucket]")
   defer closer()

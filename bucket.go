@@ -25,14 +25,14 @@ func (self *BucketApi) LookupIdByName(name string) (uint64, error) {
   ctx := self.Ctx()
   Debugf("Looking for bucket '%s'", name)
 
-  var id uint64
-
   tx, err := ctx.Txn()
   if err != nil {
     return 0, err
   }
 
   row := tx.QueryRow("SELECT id FROM bucket WHERE name = ?", name)
+
+  var id uint64
   err = row.Scan(&id)
   if err != nil {
     return 0, err

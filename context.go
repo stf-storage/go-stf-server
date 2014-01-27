@@ -35,14 +35,8 @@ type ContextWithApi interface {
   TxnManager
 }
 
-type BaseContext struct {
-  DebugLogPtr     *DebugLog
-  TxnPtr          *sql.Tx
-  TxnCommited     bool
-}
-
 type Context struct {
-  BaseContext
+  DebugLogPtr     *DebugLog
   HomeStr         string
   bucketapi       *BucketApi
   config          *Config
@@ -122,21 +116,25 @@ func (self *Context) TxnBegin() (func(), error) {
   return self.TxnRollback, nil
 }
 
-func (self *Context) TxnInProgress() *sql.Tx {
-  return self.tx
-}
-
 func (self *Context) TxnRollback() {
-  if tx := self.TxnInProgress(); tx != nil {
+  if tx, _ := self.Txn(); tx != nil {
     tx.Rollback()
   }
 }
 
 func (self *Context) TxnCommit() {
-  if tx:= self.TxnInProgress(); tx != nil {
+  if tx, _ := self.Txn(); tx != nil {
     tx.Commit()
     self.tx = nil
   }
+}
+
+var ErrNoTxnInProgress = errors.New("No transaction in progress")
+func (self *Context) Txn() (*sql.Tx, error) {
+  if self.tx == nil {
+    return nil, ErrNoTxnInProgress
+  }
+  return self.tx, nil
 }
 
 func BootstrapContext() (*Context, error) {
@@ -200,82 +198,6 @@ func (self *Context) Cache() *MemdClient {
     self.CachePtr = NewMemdClient(config.Memcached.Servers...)
   }
   return self.CachePtr
-}
-
-var ErrNoTxnInProgress = errors.New("No transaction in progress")
-func (self *BaseContext) Txn() (*sql.Tx, error) {
-  if self.TxnPtr == nil {
-    return nil, ErrNoTxnInProgress
-  }
-  return self.TxnPtr, nil
-}
-
-func (self *BaseContext) SetTxn(tx *sql.Tx) {
-  self.TxnPtr = tx
-}
-
-func (self *BaseContext) SetTxnCommited(x bool) {
-  self.TxnCommited = x
-}
-
-var ErrTxnAlreadyStarted = errors.New("There's already a transaction being processed")
-func TxnBeginWith(ctx Context) (func(), error) {
-  txn, err := ctx.Txn()
-  if err == nil {
-    return nil, ErrTxnAlreadyStarted
-  }
-  ctx.Debugf("Starting new transaction")
-
-  db, err := ctx.MainDB()
-  if err != nil {
-    return nil, err
-  }
-
-  txn, err = db.Begin()
-  if err != nil {
-    ctx.Debugf("Failed to start transaction: %s", err)
-    return nil, err
-  }
-
-  ctx.SetTxn(txn)
-  ctx.SetTxnCommited(false)
-
-  return func () { ctx.TxnRollback() }, nil
-}
-
-func (self *BaseContext) TxnCommit() error {
-  txn := self.TxnPtr
-  if txn != nil {
-    Debugf("Committing transaction")
-    err := txn.Commit()
-    if err != nil {
-      return err
-    }
-
-    Debugf("Transaction commited")
-    self.SetTxnCommited(true)
-    self.SetTxn(nil)
-  }
-  return nil
-}
-
-func (self *BaseContext) TxnRollback() error {
-  txn := self.TxnPtr
-  if txn == nil {
-    return nil
-  }
-
-  if self.TxnCommited {
-    return nil
-  }
-
-  Debugf("Rolling back changes")
-  err := txn.Rollback()
-  if err != nil {
-    return err
-  }
-  Debugf("Transaction rolled back")
-  return nil
 }
 
 func (ctx *Context) BucketApi() *BucketApi {
