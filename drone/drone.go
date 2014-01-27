@@ -191,10 +191,11 @@ func (d *Drone) Minions() []*Minion {
   }
 
   cmds := []string {
-    "stf-worker-adaptive_throttler",
-    "stf-worker-delete_bucket",
+//    "stf-worker-adaptive_throttler",
+//    "stf-worker-delete_bucket",
     "stf-worker-delete_object",
     "stf-worker-repair_object",
+    "stf-worker-storage_health",
   }
 
   d.minions = make([]*Minion, len(cmds))
