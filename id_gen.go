@@ -1,8 +1,6 @@
 package stf
 
 import (
-  "fmt"
-  "sync"
   "time"
 )
 
@@ -17,14 +15,14 @@ const (
 
 type UUIDGen struct {
   seed      uint64
-  mutex     sync.Mutex
+  mutex     chan int
   serialId  int64
   timeId    int64
   timeout   int64
 }
 
 func NewIdGenerator (seed uint64) *UUIDGen {
-  return &UUIDGen { seed: seed }
+  return &UUIDGen { seed: seed, mutex: make(chan int, 1), }
 }
 
 func (self *UUIDGen) CreateId () uint64 {
@@ -32,19 +30,9 @@ func (self *UUIDGen) CreateId () uint64 {
      guarded carefully so that we don't find this thread being blocked
      for an indefinite amount of time
   */
-
-  timeout := time.AfterFunc(time.Duration(self.timeout) * time.Second, func () {
-    panic(
-      fmt.Sprintf("CreateId(): Failed to acquire lock in time (timeout = %d seconds)", self.timeout),
-    )
-  })
-
-  self.mutex.Lock()
-  /* Make absolutely sure that we unlock by registering defer */
-  defer self.mutex.Unlock()
-
-  /* We got here? cancel the timer */
-  timeout.Stop()
+  mutex := self.mutex
+  mutex <-1
+  defer func() { <-mutex }()
 
   timeId    := time.Now().Unix()
   serialId  := self.serialId
