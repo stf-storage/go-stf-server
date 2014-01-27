@@ -3,8 +3,8 @@ package main
 import (
   "log"
   "os"
-  "path"
   "path/filepath"
+"strings"
   "github.com/stf-storage/go-stf-server"
   "github.com/stf-storage/go-stf-server/drone"
 )
@@ -23,7 +23,7 @@ func main() {
   }
 
   p := os.Getenv("PATH")
-  os.Setenv("PATH", path.Join(p, dir))
+  os.Setenv("PATH", strings.Join([]string{ p, dir }, ":"))
 
   drone.NewDrone(config).Run()
 }

@@ -5,6 +5,7 @@ import (
   "os"
   "os/exec"
   "syscall"
+  "time"
   "github.com/stf-storage/go-stf-server"
 )
 
@@ -70,6 +71,7 @@ func (m *Minion) Run() {
   defer func() {
     m.cmd = nil
     if ! m.killed {
+      time.Sleep(1 * time.Second)
       m.drone.CmdChan <-CmdSpawnMinion
     }
   }()
