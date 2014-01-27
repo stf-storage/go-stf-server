@@ -307,7 +307,7 @@ func (self *TestEnv) startTemporaryStorageServers() {
 
 func (self *TestEnv) startWorkers() {
   self.startBackground(
-    "bin/worker",
+    "bin/stf-worker",
     fmt.Sprintf("--config=%s", self.ConfigFile.Name()),
   )
 }
