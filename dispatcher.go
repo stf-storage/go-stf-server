@@ -309,8 +309,12 @@ func (self *Dispatcher) FetchObject(ctx DispatcherContextWithApi, bucketName str
 }
 
 func (self *Dispatcher) DeleteObject (ctx ContextWithApi, bucketName string, objectName string) *HTTPResponse {
-  ctx.TxnBegin()
-  defer ctx.TxnRollback()
+  rollback, err := ctx.TxnBegin()
+  if err != nil {
+    Debugf("Failed to start transaction: %s", err)
+    return HTTPInternalServerError
+  }
+  defer rollback()
 
   bucketApi := ctx.BucketApi()
   bucketId, err := bucketApi.LookupIdByName(bucketName)
@@ -351,6 +355,13 @@ func (self *Dispatcher) DeleteObject (ctx ContextWithApi, bucketName string, obj
 }
 
 func (self *Dispatcher) DeleteBucket (ctx ContextWithApi, bucketName string) *HTTPResponse {
+  rollback, err := ctx.TxnBegin()
+  if err != nil {
+    Debugf("Failed to start transaction: %s", err)
+    return HTTPInternalServerError
+  }
+  defer rollback()
+
   bucketApi := ctx.BucketApi()
   id, err := bucketApi.LookupIdByName(bucketName)
 
@@ -371,9 +382,15 @@ func (self *Dispatcher) DeleteBucket (ctx ContextWithApi, bucketName string) *HT
 
 var reMatchSuffix = regexp.MustCompile(`\.([a-zA-Z0-9]+)$`)
 func (self *Dispatcher) CreateObject (ctx DispatcherContextWithApi, bucketName string, objectName string) *HTTPResponse {
+  lmc := LogMark("[Dispatcher.CreateObject]")
+  defer lmc()
 
-  ctx.TxnBegin()
-  defer ctx.TxnRollback()
+  rollback, err := ctx.TxnBegin()
+  if err != nil {
+    Debugf("Failed to start transaction: %s", err)
+    return HTTPInternalServerError
+  }
+  defer rollback()
 
   bucketApi := ctx.BucketApi()
   bucketId, err := bucketApi.LookupIdByName(bucketName)

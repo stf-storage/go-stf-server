@@ -296,6 +296,9 @@ func (self *ObjectApi) GetAnyValidEntityUrl (
 }
 
 func (self *ObjectApi) MarkForDelete (id uint64) error {
+  closer := LogMark("[Object.MarkForDelete]")
+  defer closer()
+
   ctx := self.Ctx()
   tx, err := ctx.Txn()
   if err != nil {
