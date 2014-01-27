@@ -64,10 +64,6 @@ func (ctx *DispatcherContext) Request() *http.Request {
   return ctx.request
 }
 
-func (self *DispatcherContext) IdGenerator() *UUIDGen {
-  return self.idgen
-}
-
 func (self *Dispatcher) Debugf (format string, args ...interface {}) {
 log.Printf("%#v", self)
   self.Ctx.Debugf(format, args...)

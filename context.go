@@ -49,7 +49,7 @@ type Context struct {
   CachePtr        *MemdClient
   maindb          *DB
   tx              *sql.Tx
-  IdgenPtr        *UUIDGen
+  idgen           *UUIDGen
 }
 
 func (self *Context) Home() string { return self.HomeStr }
@@ -58,8 +58,10 @@ func (ctx *Context) LoadConfig() (*Config, error) {
 }
 
 func NewContext(config *Config) *Context {
+  idgen := NewIdGenerator(config.Dispatcher.ServerId)
   return &Context{
     config: config,
+    idgen:  idgen,
   }
 }
 
@@ -89,6 +91,10 @@ func (self *Context) MainDB() (*DB, error) {
 
 func (self *Context) Config() *Config {
   return self.config
+}
+
+func (self *Context) IdGenerator() *UUIDGen {
+  return self.idgen
 }
 
 func (self *ScopedContext) EndScope() {}
@@ -146,7 +152,6 @@ func BootstrapContext() (*Context, error) {
   }
 
   ctx.config = cfg
-  ctx.IdgenPtr = NewIdGenerator(cfg.Dispatcher.ServerId)
 
   var dbgOutput  io.Writer = os.Stderr
   if dbg := os.Getenv("STF_DEBUG"); dbg != "" {
@@ -186,10 +191,6 @@ func (self *Context) Debugf (format string, args ...interface {}) {
   if dl := self.DebugLog(); dl != nil {
     dl.Printf(format, args...)
   }
-}
-
-func (self *Context) IdGenerator() *UUIDGen {
-  return self.IdgenPtr
 }
 
 func (self *Context) Cache() *MemdClient {
