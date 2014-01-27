@@ -339,6 +339,8 @@ func (self *ObjectApi) MarkForDelete (id uint64) error {
     Debugf("Failed to delete cache '%s': '%s'", cacheKey, err)
     return err
   }
+
+  Debugf("Deleted object (%d), and placed it into deleted_object table", id)
   return nil
 }
 

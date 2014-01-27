@@ -236,7 +236,9 @@ func (self *Dispatcher) CreateBucket(ctx *DispatcherContext, bucketName string, 
     return HTTPInternalServerError
   }
 
-  ctx.TxnCommit()
+  if err = ctx.TxnCommit(); err != nil {
+    Debugf("Failed to commit: %s", err)
+  }
 
   return HTTPCreated
 }
@@ -303,7 +305,9 @@ func (self *Dispatcher) FetchObject(ctx DispatcherContextWithApi, bucketName str
   response.Header.Add("X-Reproxy-URL", uri)
   response.Header.Add("X-Accel-Redirect", "/redirect")
 
-  ctx.TxnCommit()
+  if err = ctx.TxnCommit(); err != nil {
+    Debugf("Failed to commit: %s", err)
+  }
 
   return response
 }
@@ -344,11 +348,15 @@ func (self *Dispatcher) DeleteObject (ctx ContextWithApi, bucketName string, obj
     return &HTTPResponse { Code : 500, Message: "Failed to mark object as deleted" }
   }
 
-  queueApi := ctx.QueueApi()
-  err = queueApi.Enqueue("delete_object", strconv.FormatUint(objectId, 10))
-  if err != nil {
-    Debugf("Failed to send object (%d) to delete_object queue: %s", objectId, err)
-    return &HTTPResponse { Code : 500, Message: "Failed to delete object" }
+  if err = ctx.TxnCommit(); err != nil {
+    Debugf("Failed to commit: %s", err)
+  } else {
+    queueApi := ctx.QueueApi()
+    err = queueApi.Enqueue("delete_object", strconv.FormatUint(objectId, 10))
+    if err != nil {
+      Debugf("Failed to send object (%d) to delete_object queue: %s", objectId, err)
+      return &HTTPResponse { Code : 500, Message: "Failed to delete object" }
+    }
   }
 
   return HTTPNoContent
@@ -375,7 +383,11 @@ func (self *Dispatcher) DeleteBucket (ctx ContextWithApi, bucketName string) *HT
     return &HTTPResponse { Code: 500, Message: "Failed to delete bucket" }
   }
 
-  Debugf("Deleted bucket '%s' (id = %d)", bucketName, id)
+  if err = ctx.TxnCommit(); err != nil {
+    Debugf("Failed to commit: %s", err)
+  } else {
+    Debugf("Deleted bucket '%s' (id = %d)", bucketName, id)
+  }
 
   return HTTPNoContent
 }

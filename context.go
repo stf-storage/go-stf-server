@@ -24,7 +24,7 @@ type ApiHolder interface {
 
 type TxnManager interface {
   TxnBegin() (func(), error)
-  TxnCommit()
+  TxnCommit() error
   TxnRollback()
 }
 
@@ -128,14 +128,19 @@ func (self *Context) TxnRollback() {
   }
 }
 
-func (self *Context) TxnCommit() {
+var ErrNoTxnInProgress = errors.New("No transaction in progress")
+func (self *Context) TxnCommit() error {
   if tx, _ := self.Txn(); tx != nil {
-    tx.Commit()
+    if err := tx.Commit(); err != nil {
+      return err
+    }
     self.tx = nil
+    return nil
   }
+
+  return ErrNoTxnInProgress
 }
 
-var ErrNoTxnInProgress = errors.New("No transaction in progress")
 func (self *Context) Txn() (*sql.Tx, error) {
   if self.tx == nil {
     return nil, ErrNoTxnInProgress
