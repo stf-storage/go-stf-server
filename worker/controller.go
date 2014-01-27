@@ -1,3 +1,5 @@
+// +build hoge
+
 package worker
 
 import (
@@ -14,7 +16,7 @@ import (
 
 type WorkerCommChannel chan WorkerCommand
 type HandlerArgs struct {
-  Ctx     *WorkerContext
+  Ctx     *stf.Context
   Id      string
   MaxJobs int
   JobChan chan *stf.WorkerArg
@@ -24,7 +26,6 @@ type HandlerArgs struct {
 
 type CreateHandlerFunc func(*HandlerArgs) WorkerCommChannel
 type WorkerController struct {
-  Ctx                 *WorkerContext
   Name                string
   Config              *stf.Config
   MainDB              *sql.DB
@@ -43,7 +44,6 @@ type WorkerController struct {
 }
 
 func NewWorkerControllerFromArgv(
-  ctx *WorkerContext,
   name string,
   tablename string,
   createHandlerFunc CreateHandlerFunc,
@@ -74,7 +74,6 @@ func NewWorkerControllerFromArgv(
 }
 
 func NewWorkerController (
-  ctx *WorkerContext,
   name string,
   droneId string,
   tablename string,

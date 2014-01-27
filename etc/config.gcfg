@@ -11,8 +11,11 @@ AccessLogLink = accesslog
 Username = root
 
 [QueueDB "1"]
-ConnectString = tcp(127.0.0.1:3306)
-Dbname = stf_queue
+Addr = "127.0.0.1:6379"
+
+; [QueueDB "1"]
+; ConnectString = tcp(127.0.0.1:3306)
+; Dbname = stf_queue
 
 ; [QueueDB "2"]
 ; ConnectString = tcp(...)

@@ -319,14 +319,12 @@ func TestBasic(t *testing.T) {
   env.Setup()
 
   os.Setenv("STF_CONFIG", env.ConfigFile.Name())
-  ctx, err := BootstrapContext()
+  config, err := BootstrapConfig()
   if err != nil {
     t.Errorf("%s", err)
   }
 
-  defer ctx.Destroy()
-
-  d, err := BootstrapDispatcher(ctx)
+  d := NewDispatcher(config)
   dts := httptest.NewServer(d)
   defer dts.Close()
 

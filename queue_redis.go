@@ -3,7 +3,9 @@
 package stf
 
 import (
+  "errors"
   "math/rand"
+  "time"
   "github.com/vmihailenco/redis/v2"
 )
 
@@ -19,6 +21,10 @@ func NewRedisApi(ctx ContextForQueueApi) *RedisApi {
   qidx := rand.Intn(max)
 
   return &RedisApi { BaseQueueApi { qidx, ctx }, make([]*redis.Client, max, max) }
+}
+
+func (self *RedisApi) NumQueueDB () int {
+  return len(self.ctx.Config().QueueDBList)
 }
 
 func (self *RedisApi) RedisDB(i int) (*redis.Client, error) {
@@ -40,13 +46,63 @@ func NewQueueApi(ctx ContextForQueueApi) (QueueApiInterface) {
   return NewRedisApi(ctx)
 }
 
-func (self *RedisApi) Enqueue(string, string) error {
+func (self *RedisApi) Enqueue(qname string, data string) error {
   // Lpush
-  return nil
+  max := self.NumQueueDB()
+  for i := 0; i < max; i++ {
+    qidx := self.currentQueue
+    client, err := self.RedisDB(qidx)
+
+    qidx++
+    if qidx >= max {
+      qidx = 0
+    }
+    self.currentQueue = qidx
+
+    if err != nil {
+      continue
+    }
+
+    _, err = client.LPush(qname, data).Result()
+    if err != nil {
+      continue
+    }
+
+    return nil
+  }
+  return errors.New("Failed to enqueue into any queue")
 }
 
-func (self *RedisApi) Dequeue(string, int) (*WorkerArg, error) {
+func (self *RedisApi) Dequeue(qname string, timeout int) (*WorkerArg, error) {
   // Rpop
-  return nil, nil
+  max := self.NumQueueDB()
+  for i := 0; i < max; i++ {
+    qidx := self.currentQueue
+    client, err := self.RedisDB(qidx)
+
+    qidx++
+    if qidx >= max {
+      qidx = 0
+    }
+    self.currentQueue = qidx
+
+    if err != nil {
+      continue
+    }
+
+    val, err := client.RPop(qname).Result()
+    if err != nil {
+      if err == redis.Nil {
+        // sleep a bit
+        time.Sleep(time.Duration(rand.Int63n(int64(5 * time.Second))))
+      }
+      continue
+    }
+
+    Debugf("val -> %s", val)
+    return &WorkerArg{ Arg: val }, nil
+
+  }
+  return nil, errors.New("Failed to dequeue from any queue")
 }
 

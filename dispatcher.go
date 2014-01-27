@@ -21,32 +21,37 @@ import (
 )
 
 type Dispatcher struct {
+  config          *Config
   Address         string
-  Ctx             *GlobalContext
+  Ctx             *Context
   ResponseWriter  *http.ResponseWriter
   Request         *http.Request
   logger          *apachelog.ApacheLog
 }
 
-func BootstrapDispatcher(ctx *GlobalContext) (*Dispatcher, error) {
-  cfg := (*ctx.Config()).Dispatcher
-  return NewDispatcher(ctx, cfg.ServerId, &cfg.Listen), nil
+type DispatcherContext struct {
+  *Context
+  idgen           *UUIDGen
+  ResponseWriter  http.ResponseWriter
+  request         *http.Request
 }
 
-func NewDispatcher(ctx *GlobalContext, id uint64, addr *string) *Dispatcher {
-  d := new(Dispatcher)
-  if addr != nil {
-    d.Address = *addr
-  } else {
-    d.Address = ":8080"
+type DispatcherContextWithApi interface {
+  ContextWithApi
+  Request() *http.Request
+  IdGenerator() *UUIDGen
+}
+
+func NewDispatcher(config *Config) *Dispatcher {
+  d := &Dispatcher {
+    config: config,
   }
-  d.Ctx = ctx
+
   d.logger = apachelog.CombinedLog.Clone()
 
-  cfg := ctx.Config()
-  if filename := cfg.Dispatcher.AccessLog; filename != "" {
+  if filename := config.Dispatcher.AccessLog; filename != "" {
     rl := rotatelogs.NewRotateLogs(filename)
-    if linkname := cfg.Dispatcher.AccessLogLink; linkname != "" {
+    if linkname := config.Dispatcher.AccessLogLink; linkname != "" {
       rl.LinkName = linkname
     }
     d.logger.SetOutput(rl)
@@ -55,7 +60,16 @@ func NewDispatcher(ctx *GlobalContext, id uint64, addr *string) *Dispatcher {
   return d
 }
 
+func (ctx *DispatcherContext) Request() *http.Request {
+  return ctx.request
+}
+
+func (self *DispatcherContext) IdGenerator() *UUIDGen {
+  return self.idgen
+}
+
 func (self *Dispatcher) Debugf (format string, args ...interface {}) {
+log.Printf("%#v", self)
   self.Ctx.Debugf(format, args...)
 }
 
@@ -63,15 +77,16 @@ func (self *Dispatcher) Start () {
   ncpu := runtime.NumCPU()
   nmaxprocs := runtime.GOMAXPROCS(-1)
   if ncpu != nmaxprocs {
-    self.Debugf("Setting GOMAXPROCS to %d (was %d)", ncpu, nmaxprocs)
+    Debugf("Setting GOMAXPROCS to %d (was %d)", ncpu, nmaxprocs)
     runtime.GOMAXPROCS(ncpu)
   }
 
   // Work with Server::Stareter
-  baseListener, err := ss.NewListenerOrDefault("tcp", self.Address)
+  baseListener, err := ss.NewListenerOrDefault("tcp", self.config.Dispatcher.Listen)
   if err != nil {
-    panic(fmt.Sprintf("Failed to listen at %s: %s", self.Address, err))
+    panic(fmt.Sprintf("Failed to listen at %s: %s", self.config.Dispatcher.Listen, err))
   }
+  Debugf("Listening on %s", baseListener.Addr())
 
   s := manners.NewServer()
   l := manners.NewListener(baseListener, s)
@@ -84,10 +99,13 @@ func (self *Dispatcher) Start () {
 }
 
 func (self *Dispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-  ctx := self.Ctx.NewRequestContext(w, r)
-  defer ctx.Destroy()
-
-  closer := ctx.LogMark("[%s %s]", r.Method, r.URL.Path)
+  ctx := &DispatcherContext{
+    NewContext(self.config),
+    nil,
+    w,
+    r,
+  }
+  closer := LogMark("[%s %s]", r.Method, r.URL.Path)
   defer closer()
 
   lw := apachelog.NewLoggingWriter(w, r, self.logger)
@@ -97,7 +115,7 @@ func (self *Dispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
   defer func() {
     if err := recover(); err != nil {
       debug.PrintStack()
-      self.Debugf("Error while serving request: %s", err)
+      Debugf("Error while serving request: %s", err)
       http.Error(w, http.StatusText(500), 500)
     }
   } ()
@@ -108,7 +126,7 @@ func (self *Dispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
     http.Error(w, http.StatusText(404), 404)
     return
   }
-  ctx.Debugf(
+  Debugf(
     "Parsed bucketName = '%s', objectName = '%s'\n",
     bucketName,
     objectName,
@@ -182,11 +200,11 @@ func parseObjectPath(path string) (string, string, error) {
   return bucketName, objectName, nil
 }
 
-func (self *Dispatcher) CreateBucket(ctx *RequestContext, bucketName string, objectName string) *HTTPResponse {
+func (self *Dispatcher) CreateBucket(ctx *DispatcherContext, bucketName string, objectName string) *HTTPResponse {
   ctx.TxnBegin()
   defer ctx.TxnRollback()
 
-  closer := ctx.LogMark("[Dispatcher.CreateBucket]")
+  closer := LogMark("[Dispatcher.CreateBucket]")
   defer closer()
 
   if objectName != "" {
@@ -197,10 +215,10 @@ func (self *Dispatcher) CreateBucket(ctx *RequestContext, bucketName string, obj
 
   id, err := bucketApi.LookupIdByName(bucketName)
   if err == nil { // No error, so we found a bucket
-    ctx.Debugf("Bucket '%s' already exists (id = %d)", bucketName, id)
+    Debugf("Bucket '%s' already exists (id = %d)", bucketName, id)
     return HTTPNoContent
   } else if err != sql.ErrNoRows {
-    ctx.Debugf("Error while looking up bucket '%s': %s", bucketName, err)
+    Debugf("Error while looking up bucket '%s': %s", bucketName, err)
     return HTTPInternalServerError
   }
 
@@ -214,7 +232,7 @@ func (self *Dispatcher) CreateBucket(ctx *RequestContext, bucketName string, obj
   )
 
   if err != nil {
-    self.Debugf("Failed to create bucket '%s': %s", bucketName, err)
+    Debugf("Failed to create bucket '%s': %s", bucketName, err)
     return HTTPInternalServerError
   }
 
@@ -223,13 +241,13 @@ func (self *Dispatcher) CreateBucket(ctx *RequestContext, bucketName string, obj
   return HTTPCreated
 }
 
-func (self *Dispatcher) FetchObject(ctx *RequestContext, bucketName string, objectName string) *HTTPResponse {
-  lmc := ctx.LogMark("[Dispatcher.FetchObject]")
+func (self *Dispatcher) FetchObject(ctx DispatcherContextWithApi, bucketName string, objectName string) *HTTPResponse {
+  lmc := LogMark("[Dispatcher.FetchObject]")
   defer lmc()
 
   rbc, err := ctx.TxnBegin()
   if err != nil {
-    self.Debugf("%s", err)
+    Debugf("%s", err)
     return HTTPInternalServerError
   }
   defer rbc()
@@ -237,7 +255,7 @@ func (self *Dispatcher) FetchObject(ctx *RequestContext, bucketName string, obje
   bucketApi := ctx.BucketApi()
   bucketId, err := bucketApi.LookupIdByName(bucketName)
   if err != nil {
-    self.Debugf("Bucket %s does not exist", bucketName)
+    Debugf("Bucket %s does not exist", bucketName)
     return HTTPNotFound
   }
   bucketObj, err := bucketApi.Lookup(bucketId)
@@ -261,7 +279,7 @@ func (self *Dispatcher) FetchObject(ctx *RequestContext, bucketName string, obje
     return HTTPNotFound
   }
 
-  ifModifiedSince := ctx.Request.Header.Get("If-Modified-Since")
+  ifModifiedSince := ctx.Request().Header.Get("If-Modified-Since")
   doHealthCheck := rand.Float64() < 0.001
   uri, err := objectApi.GetAnyValidEntityUrl(
     bucketObj,
@@ -290,7 +308,7 @@ func (self *Dispatcher) FetchObject(ctx *RequestContext, bucketName string, obje
   return response
 }
 
-func (self *Dispatcher) DeleteObject (ctx *RequestContext, bucketName string, objectName string) *HTTPResponse {
+func (self *Dispatcher) DeleteObject (ctx ContextWithApi, bucketName string, objectName string) *HTTPResponse {
   ctx.TxnBegin()
   defer ctx.TxnRollback()
 
@@ -312,27 +330,27 @@ func (self *Dispatcher) DeleteObject (ctx *RequestContext, bucketName string, ob
   objectApi := ctx.ObjectApi()
   objectId, err := objectApi.LookupIdByBucketAndPath(bucketObj, objectName)
   if err != nil {
-    ctx.Debugf("Failed to lookup object %s/%s", bucketName, objectName)
+    Debugf("Failed to lookup object %s/%s", bucketName, objectName)
     return HTTPNotFound
   }
 
   err = objectApi.MarkForDelete(objectId)
   if err != nil {
-    self.Debugf("Failed to mark object (%d) as deleted: %s", objectId, err)
+    Debugf("Failed to mark object (%d) as deleted: %s", objectId, err)
     return &HTTPResponse { Code : 500, Message: "Failed to mark object as deleted" }
   }
 
   queueApi := ctx.QueueApi()
   err = queueApi.Enqueue("delete_object", strconv.FormatUint(objectId, 10))
   if err != nil {
-    self.Debugf("Failed to send object (%d) to delete_object queue: %s", objectId, err)
+    Debugf("Failed to send object (%d) to delete_object queue: %s", objectId, err)
     return &HTTPResponse { Code : 500, Message: "Failed to delete object" }
   }
 
   return HTTPNoContent
 }
 
-func (self *Dispatcher) DeleteBucket (ctx *RequestContext, bucketName string) *HTTPResponse {
+func (self *Dispatcher) DeleteBucket (ctx ContextWithApi, bucketName string) *HTTPResponse {
   bucketApi := ctx.BucketApi()
   id, err := bucketApi.LookupIdByName(bucketName)
 
@@ -342,17 +360,17 @@ func (self *Dispatcher) DeleteBucket (ctx *RequestContext, bucketName string) *H
 
   err = bucketApi.MarkForDelete(id)
   if err != nil {
-    self.Debugf("Failed to delete bucket %s", err)
+    Debugf("Failed to delete bucket %s", err)
     return &HTTPResponse { Code: 500, Message: "Failed to delete bucket" }
   }
 
-  self.Debugf("Deleted bucket '%s' (id = %d)", bucketName, id)
+  Debugf("Deleted bucket '%s' (id = %d)", bucketName, id)
 
   return HTTPNoContent
 }
 
 var reMatchSuffix = regexp.MustCompile(`\.([a-zA-Z0-9]+)$`)
-func (self *Dispatcher) CreateObject (ctx *RequestContext, bucketName string, objectName string) *HTTPResponse {
+func (self *Dispatcher) CreateObject (ctx DispatcherContextWithApi, bucketName string, objectName string) *HTTPResponse {
 
   ctx.TxnBegin()
   defer ctx.TxnRollback()
@@ -383,7 +401,7 @@ func (self *Dispatcher) CreateObject (ctx *RequestContext, bucketName string, ob
   default:
     // Found oldObjectId. Mark this old object to be deleted
     // Note: Don't send to the queue just yet
-    ctx.Debugf(
+    Debugf(
       "Object '%s' on bucket '%s' already exists",
       objectName,
       bucketName,
@@ -391,7 +409,7 @@ func (self *Dispatcher) CreateObject (ctx *RequestContext, bucketName string, ob
     objectApi.MarkForDelete(oldObjectId)
   }
 
-  matches := reMatchSuffix.FindStringSubmatch(ctx.Request.URL.Path)
+  matches := reMatchSuffix.FindStringSubmatch(ctx.Request().URL.Path)
   var suffix string
   if len(matches) < 2 {
     suffix = "dat"
@@ -408,9 +426,9 @@ func (self *Dispatcher) CreateObject (ctx *RequestContext, bucketName string, ob
   // XXX Do we need to check for malicious requests where
   // ContentLength != Request.Body length?
 
-  body, err := ioutil.ReadAll(ctx.Request.Body)
+  body, err := ioutil.ReadAll(ctx.Request().Body)
   if err != nil {
-    ctx.Debugf("Failed to read request body: %s", err)
+    Debugf("Failed to read request body: %s", err)
     return HTTPInternalServerError
   }
 
@@ -420,7 +438,7 @@ func (self *Dispatcher) CreateObject (ctx *RequestContext, bucketName string, ob
     objectId,
     bucketId,
     objectName,
-    ctx.Request.ContentLength,
+    ctx.Request().ContentLength,
     buf,
     suffix,
     false, // isRepair = false
@@ -431,11 +449,11 @@ func (self *Dispatcher) CreateObject (ctx *RequestContext, bucketName string, ob
     return HTTPInternalServerError
   }
 
-  ctx.Debugf("Successfully created object %s/%s", bucketName, objectName)
+  Debugf("Successfully created object %s/%s", bucketName, objectName)
   ctx.TxnCommit()
 
   return HTTPCreated
 }
-func (self *Dispatcher) ModifyObject (ctx *RequestContext, bucketName string, objectName string) *HTTPResponse {
+func (self *Dispatcher) ModifyObject (ctx ContextWithApi, bucketName string, objectName string) *HTTPResponse {
   return nil
 }

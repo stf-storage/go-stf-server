@@ -45,7 +45,7 @@ func (self ClusterCandidates) Less(i, j int) bool {
 func (self *StorageClusterApi) LoadWritable () (ClusterCandidates, error) {
   ctx := self.Ctx()
 
-  closer := ctx.LogMark("[Cluster.LoadWritable]")
+  closer := LogMark("[Cluster.LoadWritable]")
   defer closer()
 
   tx, err := ctx.Txn()
@@ -56,7 +56,7 @@ func (self *StorageClusterApi) LoadWritable () (ClusterCandidates, error) {
   rows, err := tx.Query("SELECT id, name, mode FROM storage_cluster WHERE mode = ?", STORAGE_CLUSTER_MODE_READ_WRITE)
 
   if err != nil {
-    ctx.Debugf("Failed to execute query: %s", err)
+    Debugf("Failed to execute query: %s", err)
     return nil, err
   }
 
@@ -71,7 +71,7 @@ func (self *StorageClusterApi) LoadWritable () (ClusterCandidates, error) {
     list = append(list, s)
   }
 
-  ctx.Debugf("Loaded %d clusters", len(list))
+  Debugf("Loaded %d clusters", len(list))
 
   return list, nil
 }
@@ -79,7 +79,7 @@ func (self *StorageClusterApi) LoadWritable () (ClusterCandidates, error) {
 func (self *StorageClusterApi) LookupFromDB(id uint64) (*StorageCluster, error) {
   ctx := self.Ctx()
 
-  closer := ctx.LogMark("[StorageCluster.LookupFromDB]")
+  closer := LogMark("[StorageCluster.LookupFromDB]")
   defer closer()
 
   tx, err := ctx.Txn()
@@ -92,11 +92,11 @@ func (self *StorageClusterApi) LookupFromDB(id uint64) (*StorageCluster, error) 
   c := StorageCluster { StfObject { Id: id }, "", 0, 0 }
   err = row.Scan(&c.Name, &c.Mode)
   if err != nil {
-    ctx.Debugf("Failed to execute query (LookupFromDB): %s", err)
+    Debugf("Failed to execute query (LookupFromDB): %s", err)
     return nil, err
   }
 
-  ctx.Debugf("Loaded storage cluster %d", id)
+  Debugf("Loaded storage cluster %d", id)
 
   return &c, nil
 }
@@ -104,7 +104,7 @@ func (self *StorageClusterApi) LookupFromDB(id uint64) (*StorageCluster, error) 
 func (self *StorageClusterApi) Lookup(id uint64) (*StorageCluster, error) {
   ctx := self.Ctx()
 
-  closer := ctx.LogMark("[StorageCluster.Lookup]")
+  closer := LogMark("[StorageCluster.Lookup]")
   defer closer()
 
   var c StorageCluster
@@ -113,7 +113,7 @@ func (self *StorageClusterApi) Lookup(id uint64) (*StorageCluster, error) {
   err := cache.Get(cacheKey, &c)
 
   if err == nil {
-    ctx.Debugf("Cache HIT for cluster %d, returning cluster from cache", id)
+    Debugf("Cache HIT for cluster %d, returning cluster from cache", id)
     return &c, nil
   }
 
@@ -122,7 +122,7 @@ func (self *StorageClusterApi) Lookup(id uint64) (*StorageCluster, error) {
     return nil, err
   }
 
-  ctx.Debugf("Successfully loaded cluster %d from database", id)
+  Debugf("Successfully loaded cluster %d from database", id)
   cache.Set(cacheKey, *cptr, 3600)
   return cptr, nil
 }
@@ -130,7 +130,7 @@ func (self *StorageClusterApi) Lookup(id uint64) (*StorageCluster, error) {
 func (self *StorageClusterApi) LookupForObject(objectId uint64) (*StorageCluster, error) {
   ctx := self.Ctx()
 
-  closer := ctx.LogMark("[StorageCluster.LookupForObject]")
+  closer := LogMark("[StorageCluster.LookupForObject]")
   defer closer()
 
   tx, err := ctx.Txn()
@@ -149,8 +149,7 @@ func (self *StorageClusterApi) LookupForObject(objectId uint64) (*StorageCluster
 }
 
 func (self *StorageClusterApi) LoadCandidatesFor(objectId uint64) (ClusterCandidates, error) {
-  ctx := self.Ctx()
-  closer := ctx.LogMark("[StorageCluster.LoadCandidatesFor]")
+  closer := LogMark("[StorageCluster.LoadCandidatesFor]")
   defer closer()
 
   list, err := self.LoadWritable()
@@ -189,13 +188,13 @@ func (self *StorageClusterApi) Store(
 ) error {
   ctx := self.Ctx()
 
-  closer := ctx.LogMark("[Cluster.Store]")
+  closer := LogMark("[Cluster.Store]")
   defer closer()
 
   storageApi := ctx.StorageApi()
   storages, err := storageApi.LoadWritable(clusterId, isRepair)
   if err != nil {
-    ctx.Debugf("Failed to load storage candidates for writing: %s", err)
+    Debugf("Failed to load storage candidates for writing: %s", err)
     return err
   }
 
@@ -213,7 +212,7 @@ func (self *StorageClusterApi) Store(
         clusterId,
       ),
     )
-    ctx.Debugf("%s", err)
+    Debugf("%s", err)
     return err
   }
 
@@ -227,7 +226,7 @@ func (self *StorageClusterApi) Store(
 
   stored := 0
   for _, s := range storages {
-    ctx.Debugf("Attempting to store to storage %s (id = %d)", s.Uri, s.Id)
+    Debugf("Attempting to store to storage %s (id = %d)", s.Uri, s.Id)
     // Without the force flag, we fetch the object before storing to
     // avoid redundant writes. force should only be used when you KNOW
     // that this is a new entity
@@ -253,7 +252,7 @@ func (self *StorageClusterApi) Store(
       if bytes.Equal(fetchedMD5, expected) {
         // It's a match!
         stored++
-        ctx.Debugf(
+        Debugf(
           "Entity on storage %d exist, and md5 matches. Assume this is OK",
           s.Id,
         )
@@ -287,7 +286,7 @@ func (self *StorageClusterApi) Store(
     )
   }
 
-  ctx.Debugf(
+  Debugf(
     "Stored %d entities for object %d in cluster %d",
     stored,
     o.Id,
@@ -309,10 +308,10 @@ func (self *StorageClusterApi) CheckEntityHealth(
 ) error {
   ctx := self.Ctx()
 
-  closer := ctx.LogMark("[StorageCluster.CheckEntityHealth]")
+  closer := LogMark("[StorageCluster.CheckEntityHealth]")
   defer closer()
 
-  ctx.Debugf(
+  Debugf(
     "Checking entity health for object %d on cluster %d",
     o.Id,
     cluster.Id,
@@ -321,7 +320,7 @@ func (self *StorageClusterApi) CheckEntityHealth(
   // Short circuit. If the cluster mode is not rw or ro, then
   // we have a problem.
   if cluster.Mode != STORAGE_CLUSTER_MODE_READ_WRITE && cluster.Mode != STORAGE_CLUSTER_MODE_READ_ONLY {
-    ctx.Debugf(
+    Debugf(
       "Cluster %d is not read-write or read-only, need to move object %d out of this cluster",
       cluster.Id,
       o.Id,
@@ -339,7 +338,7 @@ func (self *StorageClusterApi) CheckEntityHealth(
   for _, s := range storages {
     err = entityApi.CheckHealth(o, s, isRepair)
     if err != nil {
-      ctx.Debugf("Health check for entity on object %d storage %d failed", o.Id, s.Id)
+      Debugf("Health check for entity on object %d storage %d failed", o.Id, s.Id)
       return errors.New(
         fmt.Sprintf(
           "Entity for object %d on storage %d is unavailable: %s",

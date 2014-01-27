@@ -1,3 +1,4 @@
+
 package worker
 
 import (
@@ -6,64 +7,33 @@ import (
   "github.com/stf-storage/go-stf-server"
   "log"
   "net/http"
-  "reflect"
   "strconv"
   "strings"
-  "sync"
   "time"
 )
 
 type StorageHealthWorker struct {
-  GenericWorker
-  Interval int64
+  *BaseWorker
 }
 
-func NewStorageHealthWorker(args *HandlerArgs) WorkerCommChannel {
-  w := NewDynamicWorker(reflect.TypeOf(StorageHealthWorker {}), args).(*StorageHealthWorker)
-  w.Interval = 15 * 60
-  w.Start(args.Waiter)
-  return w.GetPrivateChannel()
+func NewStorageHealthWorker() *StorageHealthWorker {
+  f := NewIntervalFetcher(900 * time.Second)
+  w := &StorageHealthWorker { NewBaseWorker(f) }
+  w.WorkCb = w.Work
+
+  return w
 }
 
-func (self *StorageHealthWorker) GetId() string {
-  return self.Id
-}
-
-func (self *StorageHealthWorker) GetMaxJobs() int {
-  return self.MaxJobs
-}
-
-func (self *StorageHealthWorker) GetJobChannel() JobChannel {
-  return self.JobChan
-}
-
-func (self *StorageHealthWorker) GetPrivateChannel() WorkerCommChannel {
-  return self.PrivateChan
-}
-
-func (self *StorageHealthWorker) GetControlChannel() WorkerCommChannel {
-  return self.ControlChan
-}
-
-func (self *StorageHealthWorker) Start(w *sync.WaitGroup) {
-  w.Add(1)
-  go GenericPeriodicWorker(self, w)
-}
-
-func (self *StorageHealthWorker) Work() (sleep time.Time) {
-  defer func() {
-    sleep = time.Now().Add(time.Duration(self.Interval) * time.Second)
-  }()
-  ctx := self.Ctx // Note, this is "Global" context
-  loopCtx := ctx.NewLoopContext()
-  closer, err := loopCtx.TxnBegin()
+func (self *StorageHealthWorker) Work(arg *stf.WorkerArg) (err error) {
+  ctx := self.ctx
+  closer, err := ctx.TxnBegin()
   if err != nil {
     return
   }
   defer closer()
 
   sql := `SELECT id, uri FROM storage WHERE mode IN (?, ?)`
-  db, err := loopCtx.MainDB()
+  db, err := ctx.MainDB()
   if err != nil {
     return
   }
@@ -97,13 +67,13 @@ GOING TO BRING DOWN THIS STORAGE!
         s.Id,
         s.Uri,
       )
-      if err = self.MarkStorageDown(loopCtx, s); err != nil {
+      if err = self.MarkStorageDown(ctx, s); err != nil {
         log.Printf("Failed to mark storage as down: %s", err)
         return
       }
     }
   }
-  loopCtx.TxnCommit()
+  ctx.TxnCommit()
 
   return
 }
@@ -171,7 +141,7 @@ func (self *StorageHealthWorker) StorageIsAvailable(s *stf.Storage) (err error) 
   return
 }
 
-func (self *StorageHealthWorker) MarkStorageDown(ctx *WorkerLoopContext, s *stf.Storage) (err error) {
+func (self *StorageHealthWorker) MarkStorageDown(ctx *stf.Context, s *stf.Storage) (err error) {
   db, err := ctx.MainDB()
   if err != nil {
     return

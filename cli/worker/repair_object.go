@@ -5,12 +5,16 @@ import (
 )
 
 func main() {
+  worker := NewRepairObjectWorker()
+  worker.Run()
+}
+
   ctx := worker.NewWorkerContext()
   controller := worker.NewWorkerControllerFromArgv(
     ctx,
-    "DeleteObject",
-    "queue_delete_object",
-    worker.NewDeleteObjectWorker,
+    "RepairObject",
+    "queue_repair_object",
+    worker.NewRepairObjectWorker,
   )
   controller.Start()
 }

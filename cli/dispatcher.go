@@ -27,13 +27,11 @@ func main() {
   flag.Parse()
 
   os.Setenv("STF_CONFIG", configFile)
-  ctx, err := stf.BootstrapContext()
+  config, err := stf.BootstrapConfig()
   if err != nil {
     log.Fatal(err)
   }
 
-  defer ctx.Destroy()
-
-  d, err := stf.BootstrapDispatcher(ctx)
+  d := stf.NewDispatcher(config)
   d.Start()
 }

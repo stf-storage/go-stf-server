@@ -34,7 +34,7 @@ func (self *DeletedObjectApi) Lookup(id uint64) (*DeletedObject, error) {
   )
 
   if err != nil {
-    ctx.Debugf("Failed to execute query (Lookup): %s", err)
+    Debugf("Failed to execute query (Lookup): %s", err)
     return nil, err
   }
 

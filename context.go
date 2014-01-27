@@ -3,15 +3,11 @@ package stf
 import (
   "database/sql"
   "errors"
-  "fmt"
   "io"
   "log"
-  "math/rand"
-  "net/http"
   "os"
   "strconv"
   "strings"
-  "time"
   _ "github.com/go-sql-driver/mysql"
 )
 
@@ -25,31 +21,18 @@ type ApiHolder interface {
   StorageClusterApi() *StorageClusterApi
 }
 
-type DebugWriter interface {
-  DebugLog()    *DebugLog
-  Debugf(string, ...interface{})
-  LogMark(string, ...interface{}) func()
-}
 
-type Context interface {
-  Config()      *Config
-  MainDB()      (*sql.DB, error)
-
-  Cache()       (*MemdClient)
-
-  Txn()         (*sql.Tx, error)
-  TxnBegin()    (func(), error)
-  TxnCommit()   error
-  TxnRollback() error
-  SetTxn(*sql.Tx)
-  SetTxnCommited(bool)
-
-  DebugWriter
+type TxnManager interface {
+  TxnBegin() (func(), error)
+  TxnCommit()
+  TxnRollback()
 }
 
 type ContextWithApi interface {
-  Context
+  Cache() *MemdClient
+  Txn() (*sql.Tx, error)
   ApiHolder
+  TxnManager
 }
 
 type BaseContext struct {
@@ -58,92 +41,113 @@ type BaseContext struct {
   TxnCommited     bool
 }
 
-type GlobalContext struct {
+type Context struct {
   BaseContext
   HomeStr         string
-  ConfigPtr       *Config
+  bucketapi       *BucketApi
+  config          *Config
+  deletedobjectapi *DeletedObjectApi
+  entityapi       *EntityApi
+  objectapi       *ObjectApi
+  queueapi        QueueApiInterface
+  storageapi      *StorageApi
+  storageclusterapi *StorageClusterApi
   CachePtr        *MemdClient
-  MainDBPtr       *sql.DB
+  maindb          *DB
+  tx              *sql.Tx
   IdgenPtr        *UUIDGen
 }
 
-type LocalContext struct {
-  BaseContext
-  BucketApiPtr         *BucketApi
-  DeletedObjectApiPtr  *DeletedObjectApi
-  EntityApiPtr         *EntityApi
-  ObjectApiPtr         *ObjectApi
-  QueueApiPtr          QueueApiInterface
-  StorageApiPtr        *StorageApi
-  StorageClusterApiPtr *StorageClusterApi
-  GlobalContextPtr     Context
-}
-
-type RequestContext struct {
-  LocalContext
-  Request         *http.Request
-  ResponseWriter  http.ResponseWriter
-}
-
-// BaseContext
-func (self *BaseContext) DebugLog()   *DebugLog { return self.DebugLogPtr }
-
-func (self *BaseContext) Debugf(format string, args ...interface {}) {
-  if dl := self.DebugLog(); dl != nil {
-    dl.Printf(format, args...)
-  }
-}
-
-func (self *BaseContext) LogMark(format string, args ...interface{}) func () {
-  dbgLog := self.DebugLog()
-  if dbgLog == nil {
-    return func() {}
-  }
-
-  marker := fmt.Sprintf(format, args...)
-
-  self.Debugf("%s START", marker)
-  closer := self.DebugLog().LogIndent()
-  return func () {
-    err := recover()
-    if err != nil {
-      self.Debugf("Encoundered panic during '%s': %s", marker, err)
-    }
-    closer()
-    self.Debugf("%s END", marker)
-    if err != nil {
-      panic(err)
-    }
-  }
-}
-
-func (self *GlobalContext) Home() string { return self.HomeStr }
-func (ctx *GlobalContext) LoadConfig() (*Config, error) {
+func (self *Context) Home() string { return self.HomeStr }
+func (ctx *Context) LoadConfig() (*Config, error) {
   return LoadConfig(ctx.Home())
 }
 
-func NewContext() (*GlobalContext, error) {
-  rand.Seed(time.Now().UTC().UnixNano())
-
-  home := GetHome()
-  ctx := &GlobalContext{
-    HomeStr: home,
+func NewContext(config *Config) *Context {
+  return &Context{
+    config: config,
   }
-  return ctx, nil
 }
 
-func BootstrapContext() (*GlobalContext, error) {
-  ctx, err  := NewContext()
+func (self *Context) NewScope() (*ScopedContext, error) {
+  return NewScopedContext(self.Config())
+}
+
+type ScopedContext struct {
+  config  *Config
+  tx      *sql.Tx
+  maindb  *DB
+}
+
+func (self *Context) MainDB() (*DB, error) {
+  if db := self.maindb; db != nil {
+    return db, nil
+  }
+
+  db, err := ConnectDB(&self.Config().MainDB)
   if err != nil {
     return nil, err
   }
+
+  self.maindb = db
+  return db, nil
+}
+
+func (self *Context) Config() *Config {
+  return self.config
+}
+
+func (self *ScopedContext) EndScope() {}
+func NewScopedContext(config *Config) (*ScopedContext, error) {
+  return &ScopedContext{
+    config,
+    nil,
+    nil,
+  }, nil
+}
+
+func (self *Context) TxnBegin() (func(), error) {
+  db, err := self.MainDB()
+  if err != nil {
+    return nil, err
+  }
+
+  tx, err := db.Begin()
+  if err != nil {
+    return nil, err
+  }
+
+  self.tx = tx
+
+  return self.TxnRollback, nil
+}
+
+func (self *Context) TxnInProgress() *sql.Tx {
+  return self.tx
+}
+
+func (self *Context) TxnRollback() {
+  if tx := self.TxnInProgress(); tx != nil {
+    tx.Rollback()
+  }
+}
+
+func (self *Context) TxnCommit() {
+  if tx:= self.TxnInProgress(); tx != nil {
+    tx.Commit()
+    self.tx = nil
+  }
+}
+
+func BootstrapContext() (*Context, error) {
+  ctx := NewContext(nil)
 
   cfg, err  := ctx.LoadConfig()
   if err != nil {
     return nil, err
   }
 
-  ctx.ConfigPtr = cfg
+  ctx.config = cfg
   ctx.IdgenPtr = NewIdGenerator(cfg.Dispatcher.ServerId)
 
   var dbgOutput  io.Writer = os.Stderr
@@ -176,131 +180,26 @@ func BootstrapContext() (*GlobalContext, error) {
   return ctx, nil
 }
 
-func (self *GlobalContext) DebugLog() *DebugLog {
+func (self *Context) DebugLog() *DebugLog {
   return self.DebugLogPtr
 }
 
-func (self *GlobalContext) Debugf (format string, args ...interface {}) {
+func (self *Context) Debugf (format string, args ...interface {}) {
   if dl := self.DebugLog(); dl != nil {
     dl.Printf(format, args...)
   }
 }
 
-func (self *GlobalContext) Config() *Config { return self.ConfigPtr }
-
-func (self *GlobalContext) MainDB() (*sql.DB, error) {
-  if self.MainDBPtr == nil {
-    db, err := ConnectDB(&self.Config().MainDB)
-    if err != nil {
-      return nil, err
-    }
-    self.MainDBPtr = db
-  }
-  return self.MainDBPtr, nil
-}
-
-func (self *RequestContext) MainDB() (*sql.DB, error) {
-  return self.GlobalContext().MainDB()
-}
-
-func (self *GlobalContext) IdGenerator() *UUIDGen {
+func (self *Context) IdGenerator() *UUIDGen {
   return self.IdgenPtr
 }
 
-func (self *GlobalContext) Cache() *MemdClient {
+func (self *Context) Cache() *MemdClient {
   if self.CachePtr == nil {
     config := self.Config()
     self.CachePtr = NewMemdClient(config.Memcached.Servers...)
   }
   return self.CachePtr
-}
-
-func (self *GlobalContext) NewRequestContext(w http.ResponseWriter, r *http.Request) *RequestContext {
-  rc := &RequestContext {
-    LocalContext { GlobalContextPtr: self },
-    r,
-    w,
-  }
-
-  config := self.Config()
-  if config.Global.Debug {
-    rc.DebugLogPtr = NewDebugLog()
-    rc.DebugLogPtr.Prefix = GenerateRandomId(fmt.Sprintf("%p", rc), 8)
-  }
-  return rc
-}
-
-func (self *RequestContext) GlobalContext() Context {
-  return self.GlobalContextPtr
-}
-
-func (self *RequestContext) Config() *Config {
-  return self.GlobalContext().Config()
-}
-
-func (self *RequestContext) Cache() *MemdClient {
-  return self.GlobalContext().Cache()
-}
-
-func (self *RequestContext) IdGenerator() *UUIDGen {
-  return self.GlobalContext().(*GlobalContext).IdGenerator()
-}
-
-func (self *RequestContext) BucketApi() *BucketApi {
-  if self.BucketApiPtr == nil {
-    self.BucketApiPtr = NewBucketApi(self)
-  }
-  return self.BucketApiPtr
-}
-
-func (self *RequestContext) EntityApi() *EntityApi {
-  if self.EntityApiPtr == nil {
-    self.EntityApiPtr = NewEntityApi(self)
-  }
-  return self.EntityApiPtr
-}
-
-func (self *RequestContext) DeletedObjectApi() *DeletedObjectApi {
-  if self.DeletedObjectApiPtr == nil {
-    self.DeletedObjectApiPtr = NewDeletedObjectApi(self)
-  }
-  return self.DeletedObjectApiPtr
-}
-
-func (self *RequestContext) ObjectApi() *ObjectApi {
-  if self.ObjectApiPtr == nil {
-    self.ObjectApiPtr = NewObjectApi(self)
-  }
-  return self.ObjectApiPtr
-}
-
-func (self *RequestContext) QueueApi() QueueApiInterface {
-  if self.QueueApiPtr == nil {
-    self.QueueApiPtr = NewQueueApi(self)
-  }
-  return self.QueueApiPtr
-}
-
-func (self *RequestContext) StorageApi() *StorageApi {
-  if self.StorageApiPtr == nil {
-    self.StorageApiPtr = NewStorageApi(self)
-  }
-  return self.StorageApiPtr
-}
-
-func (self *RequestContext) StorageClusterApi() *StorageClusterApi {
-  if self.StorageClusterApiPtr == nil {
-    self.StorageClusterApiPtr = NewStorageClusterApi(self)
-  }
-  return self.StorageClusterApiPtr
-}
-
-func (self *GlobalContext) TxnBegin () (func(), error) {
-  return TxnBeginWith(self)
-}
-
-func (self *RequestContext) TxnBegin() (func(), error) {
-  return TxnBeginWith(self)
 }
 
 var ErrNoTxnInProgress = errors.New("No transaction in progress")
@@ -347,13 +246,13 @@ func TxnBeginWith(ctx Context) (func(), error) {
 func (self *BaseContext) TxnCommit() error {
   txn := self.TxnPtr
   if txn != nil {
-    self.Debugf("Committing transaction")
+    Debugf("Committing transaction")
     err := txn.Commit()
     if err != nil {
       return err
     }
 
-    self.Debugf("Transaction commited")
+    Debugf("Transaction commited")
     self.SetTxnCommited(true)
     self.SetTxn(nil)
   }
@@ -370,20 +269,74 @@ func (self *BaseContext) TxnRollback() error {
     return nil
   }
 
-  self.Debugf("Rolling back changes")
+  Debugf("Rolling back changes")
   err := txn.Rollback()
   if err != nil {
     return err
   }
-  self.Debugf("Transaction rolled back")
+  Debugf("Transaction rolled back")
   return nil
 }
 
-func (self *GlobalContext) Destroy() {
-  self.ConfigPtr = nil
+func (ctx *Context) BucketApi() *BucketApi {
+  if b := ctx.bucketapi; b != nil {
+    return b
+  }
+  ctx.bucketapi = NewBucketApi(ctx)
+  return ctx.bucketapi
 }
 
-func (self *RequestContext) Destroy() {
-  self.TxnRollback()
+func (ctx *Context) DeletedObjectApi() *DeletedObjectApi {
+  if b := ctx.deletedobjectapi; b != nil {
+    return b
+  }
+  ctx.deletedobjectapi = NewDeletedObjectApi(ctx)
+  return ctx.deletedobjectapi
 }
+
+func (ctx *Context) EntityApi() *EntityApi {
+  if b := ctx.entityapi; b != nil {
+    return b
+  }
+  ctx.entityapi = NewEntityApi(ctx)
+  return ctx.entityapi
+}
+
+func (ctx *Context) ObjectApi() *ObjectApi {
+  if b := ctx.objectapi; b != nil {
+    return b
+  }
+  ctx.objectapi = NewObjectApi(ctx)
+  return ctx.objectapi
+}
+
+func (ctx *Context) QueueApi() QueueApiInterface {
+  if b := ctx.queueapi; b != nil {
+    return b
+  }
+  ctx.queueapi = NewQueueApi(ctx)
+  return ctx.queueapi
+}
+
+func (ctx *Context) StorageApi() *StorageApi {
+  if b := ctx.storageapi; b != nil {
+    return b
+  }
+  ctx.storageapi = NewStorageApi(ctx)
+  return ctx.storageapi
+}
+
+func (ctx *Context) StorageClusterApi() *StorageClusterApi {
+  if b := ctx.storageclusterapi; b != nil {
+    return b
+  }
+  ctx.storageclusterapi = NewStorageClusterApi(ctx)
+  return ctx.storageclusterapi
+}
+
+
+
+
+
+
 

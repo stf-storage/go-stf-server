@@ -7,8 +7,6 @@ type WorkerArg struct {
 
 type ContextForQueueApi interface {
   Config() *Config
-  Debugf(string, ...interface{})
-  LogMark(string, ...interface{}) func()
 }
 
 type QueueApiInterface interface {

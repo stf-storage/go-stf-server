@@ -1,3 +1,5 @@
+// +build hoge
+
 package worker
 
 import (
@@ -36,7 +38,6 @@ func CmdWorkerExited(id string) WorkerCommand {
 type JobChannel     chan *stf.WorkerArg
 type GenericWorker struct {
   Id            string
-  Ctx           *WorkerContext
   MaxJobs       int
   ControlChan   WorkerCommChannel
   PrivateChan   WorkerCommChannel
@@ -61,7 +62,7 @@ type JobHandler interface {
   GetJobChannel()     JobChannel
 }
 
-func NewWorkerContext () *WorkerContext {
+func NewWorkerContext () *stf.Context {
   rand.Seed(time.Now().UTC().UnixNano())
   home := stf.GetHome()
   ctx := &WorkerContext{

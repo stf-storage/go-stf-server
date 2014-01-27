@@ -1,109 +1,52 @@
 package worker
 
 import (
-  "errors"
-  "github.com/stf-storage/go-stf-server"
-  "log"
-  "sync"
+  "fmt"
   "time"
+  "github.com/stf-storage/go-stf-server"
 )
 
-var ErrNothingDequeued = errors.New("Could not find any jobs")
-type WorkerFetcher struct {
-  Ctx             *WorkerContext
-  Name            string
-  Config          *stf.Config
-  CurrentQueueIdx int
-  ControlChan     chan bool
-  JobChan         chan *stf.WorkerArg
-  QueueTableName  string
-  QueueTimeout    int
-  Waiter          *sync.WaitGroup
+type IntervalFetcher struct {
+  tickChan  <-chan time.Time
 }
 
-func NewWorkerFetcher(
-  ctx         *WorkerContext,
-  name        string,
-  config      *stf.Config,
-  jobChan     chan *stf.WorkerArg,
-  tablename   string,
-  timeout     int,
-  waiter      *sync.WaitGroup,
-) *WorkerFetcher {
-  return &WorkerFetcher {
-    ctx,
-    name,
-    config,
-    0,
-    make(chan bool),
-    jobChan,
-    tablename,
-    timeout,
-    waiter,
+func NewIntervalFetcher(interval time.Duration) (*IntervalFetcher) {
+  return &IntervalFetcher {
+    time.Tick(interval),
   }
 }
 
-func (self *WorkerFetcher) Stop() {
-  log.Printf("Stop: Sending notice to fetcher")
-  self.ControlChan <- true
-}
+func (i *IntervalFetcher) Loop(ctx *stf.Context, jobChan chan *stf.WorkerArg) {
+  for {
+    t := <-i.tickChan
 
-func FetcherControlThread(
-  name string,
-  w *sync.WaitGroup,
-  jobChan chan *stf.WorkerArg,
-  controlChan chan bool,
-  dequeueCb func() (*stf.WorkerArg, error),
-) {
-  defer w.Done()
-
-  var skipDequeue <-chan time.Time
-  loop := true
-  for loop {
-    select {
-    case <-controlChan:
-      log.Printf("Received fetcher termination request. Exiting")
-      loop = false
-      break
-    case <-skipDequeue:
-      stf.RandomSleep(1)
-    default:
-      stf.RandomSleep(1)
-    }
-
-    if ! loop {
-      break
-    }
-
-    // Go and dequeue
-    job, err := dequeueCb()
-    switch err {
-    case nil:
-      jobChan <- job
-
-    default:
-      // We encountered an error. It's very likely that we are not going
-      // to succeed getting the next one. In that case, go listen to the
-      // controlChan, but don't fall into the dequeue clause until the
-      // next "tick" arrives
-      skipDequeue = time.After(500 * time.Millisecond)
+    jobChan <-&stf.WorkerArg {
+      Arg: fmt.Sprintf("%d", t.UnixNano()),
     }
   }
-  log.Printf("Fetcher for %s exiting", name)
 }
 
-func (self *WorkerFetcher) Start() {
-  self.Waiter.Add(1)
-  go FetcherControlThread(
-    self.Name,
-    self.Waiter,
-    self.JobChan,
-    self.ControlChan,
-    self.Dequeue,
-  )
+type QueueFetcher struct {
+  queueName     string
+  queueTimeout  int
 }
 
-func (self *WorkerFetcher) Dequeue() (*stf.WorkerArg, error) {
-  return self.Ctx.QueueApi().Dequeue(self.QueueTableName, self.QueueTimeout)
+func NewQueueFetcher(queueName string, queueTimeout int) (*QueueFetcher) {
+  return &QueueFetcher {
+    queueName,
+    queueTimeout,
+  }
 }
+
+func (q *QueueFetcher) Loop(ctx *stf.Context, jobChan chan *stf.WorkerArg) {
+  for {
+    api := ctx.QueueApi()
+    arg, err := api.Dequeue(q.queueName, q.queueTimeout)
+    if err != nil {
+      continue
+    }
+    jobChan <-arg
+  }
+}
+
 

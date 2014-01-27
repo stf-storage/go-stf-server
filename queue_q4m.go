@@ -3,7 +3,6 @@
 package stf
 
 import (
-  "database/sql"
   "errors"
   "fmt"
   "math/rand"
@@ -12,7 +11,7 @@ import (
 type QueueConfig DatabaseConfig
 type Q4MApi struct {
   BaseQueueApi
-  QueueDBPtrList  []*sql.DB
+  QueueDBPtrList  []*DB
 }
 
 func (self *Q4MApi) NumQueueDB () int {
@@ -34,7 +33,7 @@ func NewQueueApi(ctx ContextForQueueApi) (QueueApiInterface) {
   return NewQ4MApi(ctx)
 }
 
-func ConnectQueue(config *QueueConfig) (*sql.DB, error) {
+func ConnectQueue(config *QueueConfig) (*DB, error) {
   return ConnectDB(&DatabaseConfig {
     config.Dbtype,
     config.Username,
@@ -45,7 +44,7 @@ func ConnectQueue(config *QueueConfig) (*sql.DB, error) {
 }
 
 // Gets the i-th Queue DB
-func (self *Q4MApi) QueueDB(i int) (*sql.DB, error) {
+func (self *Q4MApi) QueueDB(i int) (*DB, error) {
   if self.QueueDBPtrList[i] == nil {
     config := self.ctx.Config().QueueDBList[i]
     db, err := ConnectQueue(config)
@@ -62,11 +61,7 @@ func (self *Q4MApi) Ctx() ContextForQueueApi {
 }
 
 func (self *Q4MApi) Enqueue (queueName string, data string) error {
-  // XXX QueueDB does not have an associated transaction??
-  // This breaks design simmetry. Should we fix it?
-  ctx   := self.Ctx()
-
-  closer := ctx.LogMark("[Q4MApi.Enqueue]")
+  closer := LogMark("[Q4MApi.Enqueue]")
   defer closer()
 
   max := self.NumQueueDB()
@@ -105,9 +100,7 @@ func (self *Q4MApi) Enqueue (queueName string, data string) error {
 var ErrNothingToDequeue = errors.New("Could not dequeue anything")
 var ErrNothingToDequeueDbErrors = errors.New("Could not dequeue anything (DB errors)")
 func (self *Q4MApi) Dequeue (queueName string, timeout int) (*WorkerArg, error) {
-  ctx := self.Ctx()
-
-  closer := ctx.LogMark("[Q4MApi.Dequeue]")
+  closer := LogMark("[Q4MApi.Dequeue]")
   defer closer()
 
   max := self.NumQueueDB()
@@ -125,7 +118,7 @@ func (self *Q4MApi) Dequeue (queueName string, timeout int) (*WorkerArg, error) 
 
     db, err := self.QueueDB(qidx)
     if err != nil {
-      ctx.Debugf("Failed to retrieve QueueDB (%d): %s", qidx, err)
+      Debugf("Failed to retrieve QueueDB (%d): %s", qidx, err)
       // Ugh, try next one
       dberr++
       continue
@@ -139,13 +132,13 @@ func (self *Q4MApi) Dequeue (queueName string, timeout int) (*WorkerArg, error) 
     db.Exec("SELECT queue_end()")
 
     if err != nil {
-      ctx.Debugf("Failed to fetch from queue on QueueDB (%d): %s", qidx, err)
+      Debugf("Failed to fetch from queue on QueueDB (%d): %s", qidx, err)
       // Ugn, try next one
       dberr++
       continue
     }
 
-    ctx.Debugf("Fetched next job %+v", arg)
+    Debugf("Fetched next job %+v", arg)
     return &arg, nil
   }
 
@@ -156,6 +149,6 @@ func (self *Q4MApi) Dequeue (queueName string, timeout int) (*WorkerArg, error) 
   } else {
     err = ErrNothingToDequeue
   }
-  ctx.Debugf("%s", err)
+  Debugf("%s", err)
   return nil, err
 }

@@ -29,7 +29,6 @@ if [ -z "$SKIP_DEPS" ]; then
     OIFS=$IFS
     IFS=':'
     for path in $GOPATH; do
-      echo "Checking $path/src/$dep"
       if [ ! -e $path/src/$dep ]; then
         echo " + fetching $dep..."
         go get $dep
@@ -39,11 +38,18 @@ if [ -z "$SKIP_DEPS" ]; then
   done
 fi
 
+WORKERS="
+  delete_object
+  repair_object
+  storage_health
+"
+for executable in $WORKERS; do
+  echo "Building in bin/stf-worker-$executable"
+  go build -tags $STF_QUEUE_TYPE -a -o bin/stf-worker-$executable cli/stf-worker-$executable.go
+done
+
 EXECUTABLES="
-  worker
-  worker_storage_health
-  worker_repair_object
-  worker_delete_object
+  stf-worker
   dispatcher
   storage
 "
