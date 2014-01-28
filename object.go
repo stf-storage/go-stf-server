@@ -438,7 +438,7 @@ func createInternalName (suffix string) string {
 
 func (self *ObjectApi) Store (
   objectId uint64,
-  bucketId uint64,
+  bucketObj *Bucket,
   objectName string,
   size int64,
   input *bytes.Reader,
@@ -456,7 +456,7 @@ func (self *ObjectApi) Store (
     internalName := createInternalName(suffix)
     err := self.AttemptCreate(
       objectId,
-      bucketId,
+      bucketObj.Id,
       objectName,
       internalName,
       size,
@@ -520,6 +520,7 @@ func (self *ObjectApi) Store (
         clusterObj.Id,
         objectId,
       )
+      go self.EnqueueRepair(bucketObj, objectObj)
       // Set this to true so that the defered cleanup
       // doesn't get triggered
       done = true

@@ -465,7 +465,7 @@ func (self *Dispatcher) CreateObject (ctx DispatcherContextWithApi, bucketName s
 
   err = objectApi.Store(
     objectId,
-    bucketId,
+    bucketObj,
     objectName,
     ctx.Request().ContentLength,
     buf,
