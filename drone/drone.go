@@ -22,6 +22,8 @@ type Drone struct {
   minions []*Minion
   waiter  *sync.WaitGroup
   CmdChan chan DroneCmd
+  sigchan chan os.Signal
+  lastElectionTime time.Time
 }
 
 type DroneCmd int
@@ -75,6 +77,8 @@ func NewDrone(config *stf.Config) (*Drone) {
     minions: nil,
     waiter: &sync.WaitGroup {},
     CmdChan: make(chan DroneCmd, 1),
+    sigchan: make(chan os.Signal, 1),
+    lastElectionTime: time.Time {},
   }
 }
 
@@ -90,28 +94,34 @@ func (d *Drone) Run() {
     }
   }()
 
-  d.waiter.Add(1) // for MainLoop
-  go d.MainLoop()
   go d.TimerLoop()
   go d.WaitSignal()
 
   // We need to kickstart:
   d.CmdChan <-CmdSpawnMinion
 
-  d.waiter.Wait()
-
+  d.MainLoop()
   stf.Debugf("Drone %s exiting...", d.id)
 }
 
 func (d *Drone) WaitSignal() {
-  sigchan := make(chan os.Signal, 1)
+  sigchan := d.sigchan
   signal.Notify(sigchan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 
+OUTER:
   for d.Loop() {
-    sig := <-sigchan
+    sig, ok := <-sigchan
+    if ! ok {
+      continue
+    }
+
+    stf.Debugf("Received signal %s", sig)
+
     switch sig {
     case syscall.SIGTERM, syscall.SIGINT:
       d.CmdChan <-CmdStopDrone
+      signal.Stop(sigchan)
+      break OUTER
     case syscall.SIGHUP:
       d.CmdChan <-CmdReloadMinion
     }
@@ -129,7 +139,7 @@ func (d *Drone) makeAnnounceTask() (*PeriodicTask) {
 
 func (d *Drone) makeCheckStateTask() (*PeriodicTask) {
   return &PeriodicTask {
-    60 * time.Second,
+    5 * time.Second,
     true,
     time.Time{},
     func() { d.CmdChan <-CmdCheckState },
@@ -199,13 +209,18 @@ func (d *Drone) Minions() []*Minion {
   }
 
   d.minions = make([]*Minion, len(cmds))
-  for i, cmd := range cmds {
+  for i, x := range cmds {
+    // XXX x is used as an alias, so for each iteration we'd be using
+    // the same variable with new value if we bind callback with x
+    // in order to avoid that, we need to create a new variable, cmdname
+    cmdname := x
+    callback := func() *exec.Cmd {
+      return exec.Command(cmdname, "--config", d.ctx.Config().FileName)
+    }
     d.minions[i] = &Minion {
       drone: d,
       cmd: nil,
-      makeCmd: func() *exec.Cmd {
-        return exec.Command(cmd, "--config", d.ctx.Config().FileName)
-      },
+      makeCmd: callback,
     }
   }
   return d.minions
@@ -218,6 +233,9 @@ func (d *Drone) NotifyMinions() {
 }
 
 func (d *Drone) TimerLoop() {
+  defer func() {
+    os.Stderr.WriteString("TimerLoop exiting...")
+  }()
   // Periodically wake up to check if we have anything to do
   c := time.Tick(5 * time.Second)
 
@@ -236,22 +254,25 @@ func (d *Drone) TimerLoop() {
   }
 }
 func (d *Drone) MainLoop() {
-  defer d.waiter.Done()
-
   for d.Loop() {
-    cmd := <-d.CmdChan
-    d.HandleCommand(cmd)
+    cmd, ok := <-d.CmdChan
+    if ok {
+      d.HandleCommand(cmd)
+    }
   }
 }
 
 func (d *Drone) HandleCommand(cmd DroneCmd) {
   switch cmd {
   case CmdStopDrone:
+    stf.Debugf("Hanlding StopDrone")
     d.loop = false
   case CmdAnnounce:
     d.Announce()
   case CmdSpawnMinion:
     d.SpawnMinions()
+  case CmdElection:
+    d.HoldElection()
   case CmdReloadMinion:
     d.NotifyMinions()
   case CmdCheckState:
@@ -274,6 +295,9 @@ func (d *Drone) Announce() error {
       ON DUPLICATE KEY UPDATE expires_at = UNIX_TIMESTAMP() + 300`,
     d.id,
   )
+
+  mc := d.ctx.Cache()
+  mc.Set("go-stf.worker.election", &stf.Int64Value { time.Now().Unix() }, 0)
 
   return nil
 }
@@ -310,12 +334,74 @@ func (d *Drone) Unregister() error {
   stf.Debugf("Unregistering drone %s from database", d.id)
   db.Exec(`DELETE FROM worker_election WHERE drone_id = ?`, d.id)
   db.Exec(`DELETE FROM worker_instances WHERE drone_id = ?`, d.id)
+
+  mc := d.ctx.Cache()
+  mc.Set("go-stf.worker.election", &stf.Int64Value { time.Now().Unix() }, 0)
+
   return nil
 }
 
 func (d *Drone) CheckState() {
+  stf.Debugf("Checking state")
+
+  // Have we run an election up to this point?
+  lastElectionTime := d.lastElectionTime
+  if lastElectionTime.IsZero() {
+    stf.Debugf("First time!")
+    // then we should just run the election, regardless
+    d.CmdChan <-CmdElection
+    return
+  }
+
+  var v stf.Int64Value
+  mc := d.ctx.Cache()
+  err := mc.Get("go-stf.worker.election", &v)
+  if err != nil {
+    stf.Debugf("Failed to fetch election cache key: %s", err)
+    return
+  }
+
+  tnano := time.Unix(v.Value, 0)
+  now   := time.Unix(time.Now().Unix(), 0)
+stf.Debugf("t.Now = %s", now)
+stf.Debugf("last election = %s", lastElectionTime)
+stf.Debugf("tnano = %s", tnano)
+  if lastElectionTime.After(tnano) {
+    stf.Debugf("last election > tnano, no election")
+    return
+  }
+
+  if now.After(tnano) {
+    d.CmdChan <-CmdElection
+  }
 }
 
 func (d *Drone) MainDB() (*stf.DB, error) {
   return d.ctx.MainDB()
+}
+
+func (d *Drone) HoldElection () error {
+  db, err := d.MainDB()
+  if err != nil {
+    return err
+  }
+
+  stf.Debugf("Holding leader election")
+  row := db.QueryRow(`SELECT drone_id FROM worker_election ORDER BY id ASC LIMIT 1`)
+
+  var id string
+  err = row.Scan(&id)
+  if err != nil {
+    return err
+  }
+
+  if d.id == id {
+    stf.Debugf("Elected myself (%s) as leader", id)
+    d.leader = true
+  } else {
+    stf.Debugf("Elected %s as leader", id)
+    d.leader = false
+  }
+  d.lastElectionTime = time.Unix(time.Now().Unix(), 0)
+  return nil
 }

@@ -15,6 +15,14 @@ type MemdClient struct {
   client *memcache.Client
 }
 
+type Int64Value struct {
+  Value int64
+}
+
+type StringValue struct {
+  Value string
+}
+
 func NewMemdClient(args ...string) *MemdClient {
   memd := memcache.New(args...)
   return &MemdClient { client: memd }

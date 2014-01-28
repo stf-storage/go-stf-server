@@ -46,7 +46,7 @@ type Context struct {
   queueapi        QueueApiInterface
   storageapi      *StorageApi
   storageclusterapi *StorageClusterApi
-  CachePtr        *MemdClient
+  cache           *MemdClient
   maindb          *DB
   tx              *sql.Tx
   idgen           *UUIDGen
@@ -199,11 +199,11 @@ func (self *Context) Debugf (format string, args ...interface {}) {
 }
 
 func (self *Context) Cache() *MemdClient {
-  if self.CachePtr == nil {
+  if self.cache == nil {
     config := self.Config()
-    self.CachePtr = NewMemdClient(config.Memcached.Servers...)
+    self.cache = NewMemdClient(config.Memcached.Servers...)
   }
-  return self.CachePtr
+  return self.cache
 }
 
 func (ctx *Context) BucketApi() *BucketApi {
