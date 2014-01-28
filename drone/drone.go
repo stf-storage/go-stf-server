@@ -270,7 +270,7 @@ func (d *Drone) HandleCommand(cmd DroneCmd) {
   case CmdAnnounce:
     d.Announce()
   case CmdSpawnMinion:
-    d.SpawnMinions()
+    d.spawnMinions()
   case CmdElection:
     d.HoldElection()
   case CmdReloadMinion:
@@ -405,3 +405,19 @@ func (d *Drone) HoldElection () error {
   d.lastElectionTime = time.Unix(time.Now().Unix(), 0)
   return nil
 }
+
+func (d *Drone) SpawnMinions() {
+  if ! d.Loop() {
+    return
+  }
+
+  d.CmdChan <-CmdSpawnMinion
+}
+
+func (d *Drone) spawnMinions() {
+  for _, m := range d.Minions() {
+    m.Run()
+  }
+}
+
+

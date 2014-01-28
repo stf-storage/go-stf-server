@@ -16,11 +16,9 @@ type Minion struct {
   makeCmd func() (*exec.Cmd)
 }
 
-func (d *Drone) SpawnMinions() {
-  for _, m := range d.Minions() {
-    if m.cmd == nil {
-      go m.Run()
-    }
+func (m *Minion) Run() {
+  if m.cmd == nil {
+    go m.run()
   }
 }
 
@@ -67,12 +65,12 @@ func (m *Minion) TailOutput() {
   }
 }
 
-func (m *Minion) Run() {
+func (m *Minion) run() {
   defer func() {
     m.cmd = nil
     if ! m.killed {
       time.Sleep(1 * time.Second)
-      m.drone.CmdChan <-CmdSpawnMinion
+      m.drone.SpawnMinions()
     }
   }()
   m.cmd = m.makeCmd()
