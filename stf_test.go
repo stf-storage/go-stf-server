@@ -151,7 +151,7 @@ func (self *TestEnv) startBackground(cmdname string, args ...string) {
     }
   }()
 
-  self.AddGuard(func() { cmd.Process.Kill(); killed = true })
+  self.AddGuard(func() { cmd.Process.Signal(syscall.SIGTERM); killed = true })
 }
 
 func (self *TestEnv) startDatabase()  {
