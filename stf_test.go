@@ -113,6 +113,20 @@ func (self *TestEnv) startMemcached()  {
 
   self.MemdPort = port
   self.startBackground("memcached", "-p", fmt.Sprintf("%d", port))
+
+  // Wait until it's available
+  timeout := time.Now().Add(30 * time.Second)
+  for time.Now().Before(timeout) {
+    conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+    if err == nil {
+      conn.Close()
+      self.Logf("Memcached server ready on port %d", port)
+      return
+    }
+    time.Sleep(1 * time.Second)
+  }
+
+  self.FailNow("Failed to connect to memcached on port %d", port)
 }
 
 func (self *TestEnv) startBackground(cmdname string, args ...string) {
