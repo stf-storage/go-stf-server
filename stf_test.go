@@ -10,9 +10,12 @@ import (
   "os"
   "os/exec"
   "path/filepath"
+  "math/rand"
+  "net"
   "net/http"
   "net/http/httptest"
   "runtime"
+  "runtime/debug"
   "strings"
   "testing"
   "time"
@@ -64,6 +67,7 @@ func (self *TestEnv) Errorf(format string, args ...interface {}) {
 
 func (self *TestEnv) FailNow(format string, args ...interface {}) {
   self.Test.Errorf(format, args...)
+  debug.PrintStack()
   self.Test.FailNow()
 }
 
@@ -92,7 +96,21 @@ func (self *TestEnv) AddGuard(cb func()) {
 }
 
 func (self *TestEnv) startMemcached()  {
-  self.startBackground("memcached", "-p", "11211")
+  port := 0
+  for p := 50000 + rand.Intn(1000); p < 60000; p++ {
+    l, err := net.Listen("tcp", fmt.Sprintf(":%d", p))
+    if err == nil {
+      l.Close()
+      port = p
+      break
+    }
+  }
+
+  if port == 0 {
+    self.FailNow("Could not find a port to start memcached")
+  }
+
+  self.startBackground("memcached", "-p", fmt.Sprintf("%d", port))
 }
 
 func (self *TestEnv) startBackground(cmdname string, args ...string) {
@@ -153,8 +171,6 @@ func (self *TestEnv) startBackground(cmdname string, args ...string) {
 
 func (self *TestEnv) startDatabase()  {
   mycnf := mysqltest.NewConfig()
-  mycnf.SkipNetworking = false
-  mycnf.Port = 3306
   mysqld, err := mysqltest.NewMysqld(mycnf)
   if err != nil {
     self.FailNow("Failed to start mysqld: %s", err)
@@ -166,7 +182,7 @@ func (self *TestEnv) startDatabase()  {
     "mysql",
     "root",
     "",
-    fmt.Sprintf("tcp(%s:%d)", mysqld.Config.BindAddress, mysqld.Config.Port),
+    mysqld.ConnectString(0),
     "test",
   }
 
@@ -186,6 +202,8 @@ func (self *TestEnv) startDatabase()  {
 }
 
 func (self *TestEnv) createDatabase() {
+  self.Logf("Creating database...")
+
   // Read from DDL file, each statement (delimited by ";")
   // then execute each statement via db.Exec()
   db, err := ConnectDB(self.MysqlConfig)
@@ -215,7 +233,9 @@ func (self *TestEnv) createDatabase() {
     stmt := strbuf[0:i]
     _, err = db.Exec(stmt)
     if err != nil {
-      self.FailNow("Failed to execute SQL: %s", err)
+      self.Logf("Failed to create database!")
+      self.Logf("    SQL: %s", stmt)
+      self.FailNow("Failed to create database SQL: %s", err)
     }
     strbuf = strbuf[i+1:len(strbuf)-1]
   }
