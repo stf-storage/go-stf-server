@@ -101,7 +101,20 @@ func (self *TestEnv) startMemcached()  {
   var err error
   for i := 0; i < 5; i++ {
     server, err = tcptest.Start(func (port int) {
-      cmd = exec.Command("memcached", "-p", fmt.Sprintf("%d", port))
+      out, err := os.OpenFile("memcached.log", os.O_CREATE|os.O_WRONLY, 0644)
+
+      cmd = exec.Command("memcached", "-vv", "-p", fmt.Sprintf("%d", port))
+      stderrpipe, err := cmd.StderrPipe()
+      if err != nil {
+        self.FailNow("Failed to open pipe to stderr")
+      }
+      stdoutpipe, err := cmd.StdoutPipe()
+      if err != nil {
+        self.FailNow("Failed to open pipe to stdout")
+      }
+
+      io.Copy(out, stderrpipe)
+      io.Copy(out, stdoutpipe)
       cmd.Run()
     }, time.Minute)
     if err == nil {
@@ -125,7 +138,15 @@ func (self *TestEnv) startMemcached()  {
   })
 }
 
-func (self *TestEnv) startBackground(cmdname string, args ...string) {
+type backgroundproc struct {
+  cmdname string
+  args    []string
+  logfile string
+}
+func (self *TestEnv) startBackground(p *backgroundproc) {
+  cmdname := p.cmdname
+  args    := p.args
+  logfile := p.logfile
   path, err := exec.LookPath(cmdname)
   if err != nil {
     self.FailNow("Failed to find %s executable: %s", cmdname, err)
@@ -149,8 +170,17 @@ func (self *TestEnv) startBackground(cmdname string, args ...string) {
   }
   killed := false
 
-  go io.Copy(os.Stdout, stdoutpipe)
-  go io.Copy(os.Stderr, stderrpipe)
+  if logfile == "" {
+    go io.Copy(os.Stdout, stdoutpipe)
+    go io.Copy(os.Stderr, stderrpipe)
+  } else {
+    out, err := os.OpenFile(logfile, os.O_CREATE|os.O_WRONLY, 0644)
+    if err != nil {
+      self.FailNow("Could not open logfile: %s", err)
+    }
+    go io.Copy(out, stdoutpipe)
+    go io.Copy(out, stderrpipe)
+  }
 
   go func() {
     err := cmd.Wait()
@@ -320,10 +350,11 @@ func (self *TestEnv) startTemporaryStorageServers() {
 }
 
 func (self *TestEnv) startWorkers() {
-  self.startBackground(
-    "bin/stf-worker",
-    fmt.Sprintf("--config=%s", self.ConfigFile.Name()),
-  )
+  self.startBackground(&backgroundproc {
+    cmdname: "bin/stf-worker",
+    args: []string{ fmt.Sprintf("--config=%s", self.ConfigFile.Name()) },
+    logfile: "worker.log",
+  })
 }
 
 func TestBasic(t *testing.T) {
