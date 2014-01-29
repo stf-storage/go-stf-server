@@ -97,7 +97,7 @@ func (self *TestEnv) AddGuard(cb func()) {
 
 func (self *TestEnv) startMemcached()  {
   var cmd *exec.Cmd
-  var server *TCPTest
+  var server *tcptest.TCPTest
   var err error
   for i := 0; i < 5; i++ {
     server, err = tcptest.Start(func (port int) {
