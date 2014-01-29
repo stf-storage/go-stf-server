@@ -76,7 +76,7 @@ func NewDrone(config *stf.Config) (*Drone) {
     tasks: nil,
     minions: nil,
     waiter: &sync.WaitGroup {},
-    CmdChan: make(chan DroneCmd, 256),
+    CmdChan: make(chan DroneCmd, 1),
     sigchan: make(chan os.Signal, 1),
     lastElectionTime: time.Time {},
   }
@@ -98,7 +98,7 @@ func (d *Drone) Run() {
   go d.WaitSignal()
 
   // We need to kickstart:
-  d.SendCmd(CmdSpawnMinion)
+  go d.SendCmd(CmdSpawnMinion)
 
   d.MainLoop()
   stf.Debugf("Drone %s exiting...", d.id)
@@ -349,7 +349,7 @@ func (d *Drone) CheckState() {
   if lastElectionTime.IsZero() {
     stf.Debugf("First time!")
     // then we should just run the election, regardless
-    d.SendCmd(CmdElection)
+    go d.SendCmd(CmdElection)
     return
   }
 
@@ -372,7 +372,7 @@ stf.Debugf("tnano = %s", tnano)
   }
 
   if now.After(tnano) {
-    d.SendCmd(CmdElection)
+    go d.SendCmd(CmdElection)
   }
 }
 
