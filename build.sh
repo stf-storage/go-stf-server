@@ -21,6 +21,7 @@ if [ -z "$SKIP_DEPS" ]; then
     github.com/lestrrat/go-apache-logformat
     github.com/lestrrat/go-file-rotatelogs
     github.com/lestrrat/go-server-starter-listener
+    github.com/lestrrat/go-tcptest
     github.com/lestrrat/go-test-mysqld
     github.com/vmihailenco/msgpack
     github.com/vmihailenco/redis/v2
