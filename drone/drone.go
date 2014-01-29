@@ -76,7 +76,7 @@ func NewDrone(config *stf.Config) (*Drone) {
     tasks: nil,
     minions: nil,
     waiter: &sync.WaitGroup {},
-    CmdChan: make(chan DroneCmd, 1),
+    CmdChan: make(chan DroneCmd, 256),
     sigchan: make(chan os.Signal, 1),
     lastElectionTime: time.Time {},
   }
