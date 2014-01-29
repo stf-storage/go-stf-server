@@ -97,13 +97,21 @@ func (self *TestEnv) AddGuard(cb func()) {
 
 func (self *TestEnv) startMemcached()  {
   var cmd *exec.Cmd
-  server, err := tcptest.Start(func (port int) {
-    cmd = exec.Command("memcached", "-p", fmt.Sprintf("%d", port))
-    cmd.Run()
-  }, time.Minute)
+  var server *TCPTest
+  var err error
+  for i := 0; i < 5; i++ {
+    server, err = tcptest.Start(func (port int) {
+      cmd = exec.Command("memcached", "-p", fmt.Sprintf("%d", port))
+      cmd.Run()
+    }, time.Minute)
+    if err == nil {
+      break
+    }
+    self.Logf("Failed to start memcached: %s", err)
+  }
 
-  if err != nil {
-    self.FailNow("Failed to start memcached: %s", err)
+  if server == nil {
+    self.FailNow("Failed to start memcached")
   }
 
   self.MemdPort = server.Port()
