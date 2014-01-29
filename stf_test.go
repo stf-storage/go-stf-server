@@ -28,6 +28,7 @@ type TestEnv struct {
   ConfigFile  *os.File
   Mysqld      *mysqltest.TestMysqld
   MysqlConfig *DatabaseConfig
+  MemdPort    int
   QueueConfig *QueueConfig
 }
 
@@ -110,6 +111,7 @@ func (self *TestEnv) startMemcached()  {
     self.FailNow("Could not find a port to start memcached")
   }
 
+  self.MemdPort = port
   self.startBackground("memcached", "-p", fmt.Sprintf("%d", port))
 }
 
@@ -268,12 +270,13 @@ ConnectString=%s
 Dbname=%s
 
 [Memcached]
-Servers = 127.0.0.1:11211
+Servers = 127.0.0.1:%d
 
 `,
     self.MysqlConfig.Username,
     self.MysqlConfig.ConnectString,
     self.MysqlConfig.Dbname,
+    self.MemdPort,
   ))
 
 
