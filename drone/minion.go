@@ -70,14 +70,19 @@ func (m *Minion) run() {
     m.cmd = nil
     if ! m.killed {
       time.Sleep(1 * time.Second)
-      m.drone.SpawnMinions()
+      m.drone.SendCmd(CmdSpawnMinion)
     }
   }()
-  m.cmd = m.makeCmd()
-  stf.Debugf("Running command: %v", m.cmd.Args)
+  cmd := m.makeCmd()
+  m.cmd = cmd
+
+  cmd.SysProcAttr = &syscall.SysProcAttr {
+    Setpgid: true,
+  }
+  stf.Debugf("Running command: %v", cmd.Args)
 
   m.TailOutput()
-  if cmd := m.cmd; cmd != nil {
+  if cmd != nil {
     err := cmd.Run() // BLOCKS!
     if err != nil {
       stf.Debugf("Command %v exited: %s", cmd.Args, err)
@@ -96,8 +101,8 @@ func (m *Minion) NotifyReload() {
 func (m *Minion) Kill() {
   m.killed = true
   if m.cmd != nil && m.cmd.Process != nil {
-    stf.Debugf("Killing %v (%d)", m.cmd.Args, m.cmd.Process.Pid)
-    m.cmd.Process.Kill()
+    stf.Debugf("Sending TERM to %v (%d)", m.cmd.Args, m.cmd.Process.Pid)
+    m.cmd.Process.Signal(syscall.SIGTERM)
   }
 }
 

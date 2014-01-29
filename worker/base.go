@@ -6,10 +6,20 @@ import (
 )
 
 type Fetcher interface {
-  Loop(*stf.Context, chan *stf.WorkerArg)
+  Loop(Worker)
+  IsRunning() bool
+}
+
+type Worker interface {
+  Name()          string
+  Loop()          bool
+  ActiveSlaves()  int
+  Ctx()           *stf.Context
+  SendJob(*stf.WorkerArg)
 }
 
 type BaseWorker struct {
+  name          string
   loop          bool
   activeSlaves  int
   maxSlaves     int
@@ -17,7 +27,7 @@ type BaseWorker struct {
   waiter        *sync.WaitGroup
   fetcher       Fetcher
   CmdChan       chan WorkerCmd
-  JobChan       chan *stf.WorkerArg
+  jobChan       chan *stf.WorkerArg
   WorkCb        func(*stf.WorkerArg) error
 }
 
@@ -32,8 +42,9 @@ var (
   CmdWorkerFetcherExited = WorkerCmd(7)
 )
 
-func NewBaseWorker(f Fetcher) (*BaseWorker) {
+func NewBaseWorker(name string, f Fetcher) (*BaseWorker) {
   return &BaseWorker {
+    name,
     true,
     0,
     0,
@@ -47,6 +58,9 @@ func NewBaseWorker(f Fetcher) (*BaseWorker) {
 }
 
 func (w *BaseWorker) Run() {
+  closer := stf.LogMark("[Worker:%s]", w.name)
+  defer closer()
+
   config, err := stf.BootstrapConfig()
   if err != nil {
     stf.Debugf("Failed to load config: %s", err)
@@ -55,18 +69,45 @@ func (w *BaseWorker) Run() {
 
   w.ctx = stf.NewContext(config)
 
-  w.waiter.Add(1)
-  go w.MainLoop()
+  w.SendCmd(CmdWorkerSlaveSpawn)
 
-  w.CmdChan <-CmdWorkerSlaveSpawn
-  w.CmdChan <-CmdWorkerFetcherSpawn
-
-  w.waiter.Wait()
+  w.MainLoop()
   stf.Debugf("Worker exiting")
 }
 
+func (w *BaseWorker) SendCmd(cmd WorkerCmd) {
+  if ! w.Loop() {
+    return
+  }
+
+  w.CmdChan <-cmd
+}
+
+func (w *BaseWorker) Name() string {
+  return w.name
+}
+
+func (w *BaseWorker) Ctx() *stf.Context {
+  return w.ctx
+}
+
+func (w *BaseWorker) ActiveSlaves() int {
+  return w.activeSlaves
+}
+
+func (w *BaseWorker) SendJob(job *stf.WorkerArg) {
+  if ! w.Loop() {
+    return
+  }
+
+  w.jobChan <-job
+}
+
+func (w *BaseWorker) Loop() bool {
+  return w.loop
+}
+
 func (w *BaseWorker) MainLoop() {
-  defer w.waiter.Done()
   for {
     cmd := <-w.CmdChan
     w.HandleCommand(cmd)
@@ -80,16 +121,18 @@ func (w *BaseWorker) HandleCommand(cmd WorkerCmd) {
   case CmdWorkerFetcherSpawn:
     w.FetcherSpawn()
   case CmdWorkerFetcherExited:
-    w.CmdChan <-CmdWorkerFetcherSpawn
+    stf.Debugf("Fetcher exited")
+    w.SendCmd(CmdWorkerFetcherSpawn)
   case CmdWorkerSlaveStop:
     w.SlaveStop()
   case CmdWorkerSlaveSpawn:
     w.SlaveSpawn()
   case CmdWorkerSlaveStarted:
     w.activeSlaves++
+    w.SendCmd(CmdWorkerFetcherSpawn)
   case CmdWorkerSlaveExited:
     w.activeSlaves--
-    w.CmdChan <-CmdWorkerSlaveSpawn
+    w.SendCmd(CmdWorkerSlaveSpawn)
   }
 }
 
@@ -106,12 +149,12 @@ func (w *BaseWorker) ReloadConfig() {
   diff := oldMaxSlaves - w.activeSlaves;
   if diff > 0 {
     for i := 0; i < diff; i++ {
-      w.CmdChan <-CmdWorkerSlaveStop
+      w.SendCmd(CmdWorkerSlaveStop)
     }
   } else if diff < 0 {
     diff = diff * -1
     for i := 0; i < diff; i++ {
-      w.CmdChan <-CmdWorkerSlaveSpawn
+      w.SendCmd(CmdWorkerSlaveSpawn)
     }
   }
 }
@@ -121,10 +164,14 @@ func (w *BaseWorker) FetcherSpawn() {
     return
   }
 
+  // do we already have a fetcher?
+  if w.fetcher.IsRunning() {
+    return
+  }
+
   go func() {
-    w.waiter.Add(1)
-    defer func() { w.CmdChan <-CmdWorkerFetcherExited }()
-    w.fetcher.Loop(w.ctx, w.JobChan)
+    defer w.SendCmd(CmdWorkerFetcherExited)
+    w.fetcher.Loop(w)
   }()
 }
 
@@ -133,7 +180,7 @@ func (w *BaseWorker) SlaveStop() {
     return
   }
 
-  w.JobChan <-nil
+  w.jobChan <-nil
 }
 
 func (w *BaseWorker) SlaveSpawn() {
@@ -146,13 +193,13 @@ func (w *BaseWorker) SlaveSpawn() {
 }
 
 func (w *BaseWorker) SlaveLoop() {
-  w.CmdChan <-CmdWorkerSlaveStarted
+  w.SendCmd(CmdWorkerSlaveStarted)
   // if we exited, spawn a new one
-  defer func() { w.CmdChan <-CmdWorkerSlaveExited }()
+  defer func() { w.SendCmd(CmdWorkerSlaveExited) }()
 
   stf.Debugf("New slave starting...")
   for {
-    job := <-w.JobChan
+    job := <-w.jobChan
     if job == nil {
       break // Bail out of loop
     }

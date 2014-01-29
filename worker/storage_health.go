@@ -18,7 +18,7 @@ type StorageHealthWorker struct {
 
 func NewStorageHealthWorker() *StorageHealthWorker {
   f := NewIntervalFetcher(900 * time.Second)
-  w := &StorageHealthWorker { NewBaseWorker(f) }
+  w := &StorageHealthWorker { NewBaseWorker("StorageHealth", f) }
   w.WorkCb = w.Work
 
   return w

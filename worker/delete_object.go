@@ -12,7 +12,7 @@ type DeleteObjectWorker struct {
 func NewDeleteObjectWorker() (*DeleteObjectWorker) {
   f := NewQueueFetcher("queue_delete_object", 1)
   w := &DeleteObjectWorker {
-    NewBaseWorker(f),
+    NewBaseWorker("DeleteObject", f),
   }
   w.WorkCb = w.Work
   return w

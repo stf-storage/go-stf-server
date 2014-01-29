@@ -11,7 +11,7 @@ type RepairObjectWorker struct {
 
 func NewRepairObjectWorker() (*RepairObjectWorker) {
   f := NewQueueFetcher("queue_repair_object", 1)
-  w := &RepairObjectWorker { NewBaseWorker(f) }
+  w := &RepairObjectWorker { NewBaseWorker("RepairObject", f) }
   w.WorkCb = w.Work
   return w
 }

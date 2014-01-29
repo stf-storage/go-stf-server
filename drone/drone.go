@@ -98,7 +98,7 @@ func (d *Drone) Run() {
   go d.WaitSignal()
 
   // We need to kickstart:
-  d.CmdChan <-CmdSpawnMinion
+  d.SendCmd(CmdSpawnMinion)
 
   d.MainLoop()
   stf.Debugf("Drone %s exiting...", d.id)
@@ -119,11 +119,11 @@ OUTER:
 
     switch sig {
     case syscall.SIGTERM, syscall.SIGINT:
-      d.CmdChan <-CmdStopDrone
+      d.SendCmd(CmdStopDrone)
       signal.Stop(sigchan)
       break OUTER
     case syscall.SIGHUP:
-      d.CmdChan <-CmdReloadMinion
+      d.SendCmd(CmdReloadMinion)
     }
   }
 }
@@ -133,7 +133,7 @@ func (d *Drone) makeAnnounceTask() (*PeriodicTask) {
     30 * time.Second,
     true,
     time.Time{},
-    func() { d.CmdChan <-CmdAnnounce },
+    func() { d.SendCmd(CmdAnnounce) },
   }
 }
 
@@ -142,7 +142,7 @@ func (d *Drone) makeCheckStateTask() (*PeriodicTask) {
     5 * time.Second,
     true,
     time.Time{},
-    func() { d.CmdChan <-CmdCheckState },
+    func() { d.SendCmd(CmdCheckState) },
   }
 }
 
@@ -151,7 +151,7 @@ func (d *Drone) makeElectionTask() (*PeriodicTask) {
     300 * time.Second,
     false,
     time.Time{},
-    func() { d.CmdChan <-CmdElection },
+    func() { d.SendCmd(CmdElection) },
   }
 }
 
@@ -160,7 +160,7 @@ func (d *Drone) makeExpireTask() (*PeriodicTask) {
     60 * time.Second,
     true,
     time.Time{},
-    func() { d.CmdChan <-CmdExpireDrone },
+    func() { d.SendCmd(CmdExpireDrone) },
   }
 }
 
@@ -169,7 +169,7 @@ func (d *Drone) makeRebalanceTask() (*PeriodicTask) {
     60 * time.Second,
     true,
     time.Time{},
-    func() { d.CmdChan <-CmdRebalance },
+    func() { d.SendCmd(CmdRebalance) },
   }
 }
 
@@ -270,7 +270,7 @@ func (d *Drone) HandleCommand(cmd DroneCmd) {
   case CmdAnnounce:
     d.Announce()
   case CmdSpawnMinion:
-    d.spawnMinions()
+    d.SpawnMinions()
   case CmdElection:
     d.HoldElection()
   case CmdReloadMinion:
@@ -349,7 +349,7 @@ func (d *Drone) CheckState() {
   if lastElectionTime.IsZero() {
     stf.Debugf("First time!")
     // then we should just run the election, regardless
-    d.CmdChan <-CmdElection
+    d.SendCmd(CmdElection)
     return
   }
 
@@ -372,7 +372,7 @@ stf.Debugf("tnano = %s", tnano)
   }
 
   if now.After(tnano) {
-    d.CmdChan <-CmdElection
+    d.SendCmd(CmdElection)
   }
 }
 
@@ -406,15 +406,15 @@ func (d *Drone) HoldElection () error {
   return nil
 }
 
-func (d *Drone) SpawnMinions() {
+func (d *Drone) SendCmd(cmd DroneCmd) {
   if ! d.Loop() {
     return
   }
 
-  d.CmdChan <-CmdSpawnMinion
+  d.CmdChan <-cmd
 }
 
-func (d *Drone) spawnMinions() {
+func (d *Drone) SpawnMinions() {
   for _, m := range d.Minions() {
     m.Run()
   }
