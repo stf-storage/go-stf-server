@@ -1,24 +1,23 @@
 package stf
 
 import (
-  "bufio"
   "fmt"
-  "github.com/lestrrat/go-test-mysqld"
   "io"
   "io/ioutil"
   "log"
   "os"
   "os/exec"
   "path/filepath"
-  "math/rand"
-  "net"
   "net/http"
   "net/http/httptest"
   "runtime"
   "runtime/debug"
   "strings"
+  "syscall"
   "testing"
   "time"
+  "github.com/lestrrat/go-tcptest"
+  "github.com/lestrrat/go-test-mysqld"
 )
 
 type TestEnv struct {
@@ -97,36 +96,25 @@ func (self *TestEnv) AddGuard(cb func()) {
 }
 
 func (self *TestEnv) startMemcached()  {
-  port := 0
-  for p := 50000 + rand.Intn(1000); p < 60000; p++ {
-    l, err := net.Listen("tcp", fmt.Sprintf(":%d", p))
-    if err == nil {
-      l.Close()
-      port = p
-      break
+  var cmd *exec.Cmd
+  server, err := tcptest.Start(func (port int) {
+    cmd = exec.Command("memcached", "-p", fmt.Sprintf("%d", port))
+    cmd.Run()
+  }, time.Minute)
+
+  if err != nil {
+    self.FailNow("Failed to start memcached: %s", err)
+  }
+
+  self.MemdPort = server.Port()
+
+  self.AddGuard(func() {
+    if cmd != nil && cmd.Process != nil {
+      self.Logf("Killing memcached")
+      cmd.Process.Signal(syscall.SIGTERM)
     }
-  }
-
-  if port == 0 {
-    self.FailNow("Could not find a port to start memcached")
-  }
-
-  self.MemdPort = port
-  self.startBackground("memcached", "-p", fmt.Sprintf("%d", port))
-
-  // Wait until it's available
-  timeout := time.Now().Add(30 * time.Second)
-  for time.Now().Before(timeout) {
-    conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
-    if err == nil {
-      conn.Close()
-      self.Logf("Memcached server ready on port %d", port)
-      return
-    }
-    time.Sleep(1 * time.Second)
-  }
-
-  self.FailNow("Failed to connect to memcached on port %d", port)
+    server.Wait()
+  })
 }
 
 func (self *TestEnv) startBackground(cmdname string, args ...string) {
@@ -145,13 +133,6 @@ func (self *TestEnv) startBackground(cmdname string, args ...string) {
   if err != nil {
     self.FailNow("Failed to open pipe to stdout")
   }
-  pipes := []struct {
-    Out *os.File
-    Rdr *bufio.Reader
-  } {
-    { os.Stdout, bufio.NewReader(stdoutpipe) },
-    { os.Stderr, bufio.NewReader(stderrpipe) },
-  }
 
   self.Logf("Starting command %v", cmd.Args)
   err = cmd.Start()
@@ -159,21 +140,9 @@ func (self *TestEnv) startBackground(cmdname string, args ...string) {
     self.FailNow("Failed to start %s: %s", cmdname, err)
   }
   killed := false
-  for _, p := range pipes {
-    go func(out *os.File, in *bufio.Reader) {
-      for !killed {
-        str, err := in.ReadBytes('\n')
-        if str != nil {
-          out.Write(str)
-          out.Sync()
-        }
 
-        if err != nil {
-          break
-        }
-      }
-    }(p.Out, p.Rdr)
-  }
+  go io.Copy(os.Stdout, stdoutpipe)
+  go io.Copy(os.Stderr, stderrpipe)
 
   go func() {
     err := cmd.Wait()
