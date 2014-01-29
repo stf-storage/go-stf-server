@@ -1,7 +1,7 @@
 package drone
 
 import (
-  "bufio"
+  "io"
   "os"
   "os/exec"
   "syscall"
@@ -22,25 +22,6 @@ func (m *Minion) Run() {
   }
 }
 
-type pipeConnector struct {
-  out *os.File
-  rdr *bufio.Reader
-}
-
-func (p *pipeConnector) connect() {
-  for {
-    str, err := p.rdr.ReadBytes('\n')
-    if str != nil {
-      p.out.Write(str)
-      p.out.Sync()
-    }
-
-    if err != nil {
-      break
-    }
-  }
-}
-
 func (m *Minion) TailOutput() {
   cmd := m.cmd
   if cmd == nil {
@@ -55,14 +36,9 @@ func (m *Minion) TailOutput() {
   if err != nil {
     return
   }
-  pipes := []*pipeConnector {
-    { os.Stdout, bufio.NewReader(stdoutpipe) },
-    { os.Stderr, bufio.NewReader(stderrpipe) },
-  }
 
-  for _, p := range pipes {
-    go p.connect()
-  }
+  go io.Copy(os.Stdout, stdoutpipe)
+  go io.Copy(os.Stderr, stderrpipe)
 }
 
 func (m *Minion) run() {
