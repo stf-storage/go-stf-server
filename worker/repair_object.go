@@ -22,7 +22,7 @@ func (self *RepairObjectWorker) Work(arg *stf.WorkerArg) (err error) {
     return
   }
   defer func() {
-    if  err != nil {
+    if err == nil {
       stf.Debugf("Processed object %d", objectId)
     } else {
       stf.Debugf("Failed to process object %d: %s", objectId, err)
@@ -39,10 +39,10 @@ func (self *RepairObjectWorker) Work(arg *stf.WorkerArg) (err error) {
   objectApi := ctx.ObjectApi()
   err = objectApi.Repair(objectId)
   if err != nil {
-    stf.Debugf("Failed to repair %d: %s", objectId, err)
-  } else {
-    ctx.TxnCommit()
-    stf.Debugf("Repaired object %d", objectId)
+    err = ctx.TxnCommit()
+    if err != nil {
+      return
+    }
   }
   err = nil
   return
