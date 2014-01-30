@@ -68,19 +68,6 @@ func (self *ObjectApi) LookupFromDB(id  uint64) (*Object, error) {
     return nil, err
   }
 
-Debugf("----->")
-  rows, err := tx.Query("SELECT id FROM object")
-  for rows.Next() {
-    var id uint64
-    err = rows.Scan(&id)
-    if err != nil {
-      break
-    } else {
-      Debugf("SELECT ALL OBJECTS -> %d", id)
-    }
-  }
-Debugf("<-----")
-
   row := tx.QueryRow("SELECT id, bucket_id, name, internal_name, size, status, created_at, updated_at  FROM object WHERE id = ?", id)
 
   var o Object

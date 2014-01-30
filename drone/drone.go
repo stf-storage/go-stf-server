@@ -204,6 +204,7 @@ func (d *Drone) Minions() []*Minion {
 //    "stf-worker-adaptive_throttler",
 //    "stf-worker-delete_bucket",
     "stf-worker-delete_object",
+    "stf-worker-replicate_object",
     "stf-worker-repair_object",
     "stf-worker-storage_health",
   }

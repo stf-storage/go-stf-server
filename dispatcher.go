@@ -487,10 +487,8 @@ func (self *Dispatcher) CreateObject (ctx DispatcherContextWithApi, bucketName s
 
   Debugf("Successfully created object %s/%s", bucketName, objectName)
   go func () {
-    objectObj, err := objectApi.Lookup(objectId)
-    if err == nil {
-      objectApi.EnqueueRepair(bucketObj, objectObj)
-    }
+    queueApi := ctx.QueueApi()
+    queueApi.Enqueue("queue_replicate", strconv.FormatUint(objectId, 10))
   }()
   return HTTPCreated
 }

@@ -42,6 +42,7 @@ fi
 WORKERS="
   delete_object
   repair_object
+  replicate_object
   storage_health
 "
 for executable in $WORKERS; do
