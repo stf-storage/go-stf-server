@@ -11,7 +11,7 @@ Go Implementation of STF Distributed Object Store
 
 STF is a simple, amazon S3-like distributed object store, aimed for people who want to run such systems on their own data centers, on commodity hardware.
 
-While the Perl version is used in production for over 3 years handling billions of hits every day, this go version is still in heavy development.
+While the [Perl version](https://github.com/stf-storage/stf) is used in production for over 3 years handling billions of hits every day, this go version is still in heavy development.
 
 ## Features
 
