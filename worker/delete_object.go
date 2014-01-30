@@ -25,9 +25,9 @@ func (self *DeleteObjectWorker) Work(arg *stf.WorkerArg) (err error) {
   }
   defer func() {
     if  err != nil {
-      stf.Debugf("Processed object %d", objectId)
+      stf.Debugf("Failed to delete entities for object %d: %s", objectId, err)
     } else {
-      stf.Debugf("Failed to process object %d: %s", objectId, err)
+      stf.Debugf("Deleted object %d", objectId)
     }
   }()
 
@@ -41,13 +41,13 @@ func (self *DeleteObjectWorker) Work(arg *stf.WorkerArg) (err error) {
   entityApi := ctx.EntityApi()
   err = entityApi.RemoveForDeletedObjectId(objectId)
   if err != nil {
-    stf.Debugf("Failed to delete entities for object %d: %s", objectId, err)
-  } else {
-    ctx.TxnCommit()
-    stf.Debugf("Deleted entities for object %d", objectId)
+    return
   }
 
-  err = nil
+  err = ctx.TxnCommit()
+  if err != nil {
+    return
+  }
   return
 }
 

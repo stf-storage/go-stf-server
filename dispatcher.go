@@ -348,16 +348,17 @@ func (self *Dispatcher) DeleteObject (ctx ContextWithApi, bucketName string, obj
     return &HTTPResponse { Code : 500, Message: "Failed to mark object as deleted" }
   }
 
-  if err = ctx.TxnCommit(); err != nil {
+  err = ctx.TxnCommit()
+  if err != nil {
     Debugf("Failed to commit: %s", err)
-  } else {
-    queueApi := ctx.QueueApi()
-    err = queueApi.Enqueue("delete_object", strconv.FormatUint(objectId, 10))
-    if err != nil {
-      Debugf("Failed to send object (%d) to delete_object queue: %s", objectId, err)
-      return &HTTPResponse { Code : 500, Message: "Failed to delete object" }
-    }
+    return HTTPInternalServerError
   }
+
+  Debugf("Successfully deleted object %s/%s", bucketName, objectName)
+  go func () {
+    queueApi := ctx.QueueApi()
+    queueApi.Enqueue("queue_delete_object", strconv.FormatUint(objectId, 10))
+  }()
 
   return HTTPNoContent
 }

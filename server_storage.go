@@ -44,6 +44,10 @@ func NewStorageServer(listen string, root string) (*StorageServer) {
   return ss
 }
 
+func (self *StorageServer) Root() string {
+  return self.root
+}
+
 func (self *StorageServer) Close() {
   // Make sure to clean up
   os.RemoveAll(self.tempdir)

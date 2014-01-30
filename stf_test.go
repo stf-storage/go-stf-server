@@ -6,9 +6,11 @@ import (
   "io/ioutil"
   "os"
   "os/exec"
+  "path"
   "path/filepath"
   "net/http"
   "net/http/httptest"
+  "net/url"
   "runtime"
   "runtime/debug"
   "strings"
@@ -29,6 +31,7 @@ type TestEnv struct {
   MysqlConfig *DatabaseConfig
   MemdPort    int
   QueueConfig *QueueConfig
+  StorageServers []*StorageServer
 }
 
 type TestDatabase struct {
@@ -316,7 +319,7 @@ Servers = 127.0.0.1:%d
   })
 }
 
-func (self *TestEnv) startTemporaryStorageServer(id int, dir string) {
+func (self *TestEnv) startTemporaryStorageServer(id int, dir string) (*StorageServer) {
   ss := NewStorageServer("dummy", dir)
   dts := httptest.NewServer(ss)
 
@@ -333,6 +336,8 @@ func (self *TestEnv) startTemporaryStorageServer(id int, dir string) {
   self.Guards = append(self.Guards, func() {
     dts.Close()
   })
+
+  return ss
 }
 
 func (self *TestEnv) startTemporaryStorageServers() {
@@ -345,10 +350,15 @@ func (self *TestEnv) startTemporaryStorageServers() {
   if err != nil {
     self.Test.Fatalf("Failed to create storage cluster: %s", err)
   }
-  for i := 1; i <= 3; i++ {
+
+  max := 3
+  servers := make([]*StorageServer, max)
+  for i := 1; i <= max; i++ {
     mydir := filepath.Join(self.WorkDir, fmt.Sprintf("storage%03d", i))
-    self.startTemporaryStorageServer(i, mydir)
+    servers[i - 1] = self.startTemporaryStorageServer(i, mydir)
   }
+
+  self.StorageServers = servers
 }
 
 func (self *TestEnv) startWorkers() {
@@ -383,10 +393,10 @@ func TestBasic(t *testing.T) {
   t.Logf("Test server ready at %s", dts.URL)
 
   bucketUrl := fmt.Sprintf("%s/test", dts.URL)
-  url := fmt.Sprintf("%s/test.txt", bucketUrl)
-  res, _ := client.Get(url)
+  uri := fmt.Sprintf("%s/test.txt", bucketUrl)
+  res, _ := client.Get(uri)
   if res.StatusCode != 404 {
-    t.Errorf("GET on non-existent URL %s: want 404, got %d", url, res.StatusCode)
+    t.Errorf("GET on non-existent URL %s: want 404, got %d", uri, res.StatusCode)
   }
 
   req, err := http.NewRequest("PUT", bucketUrl, nil)
@@ -405,40 +415,75 @@ func TestBasic(t *testing.T) {
     t.Errorf("Failed to stat %s: %s", filename, err)
   }
 
-  req, _ = http.NewRequest("PUT", url, file)
+  req, _ = http.NewRequest("PUT", uri, file)
   req.ContentLength = fi.Size()
   res, _ = client.Do(req)
   if res.StatusCode != 201 {
-    t.Errorf("PUT %s: want 201, got %d", url, res.StatusCode)
+    t.Errorf("PUT %s: want 201, got %d", uri, res.StatusCode)
   }
 
-  req, _ = http.NewRequest("GET", url, nil)
+  req, _ = http.NewRequest("GET", uri, nil)
   res, _ = client.Do(req)
   if res.StatusCode != 200 {
-    t.Errorf("GET %s: want 200, got %d", url, res.StatusCode)
+    t.Errorf("GET %s: want 200, got %d", uri, res.StatusCode)
   }
 
-  if res.Header.Get("X-Reproxy-URL") == "" {
-    t.Errorf("GET %s: want X-Reproxy-URL, got empty", url)
+  reproxy_uri := res.Header.Get("X-Reproxy-URL")
+  if reproxy_uri == "" {
+    t.Errorf("GET %s: want X-Reproxy-URL, got empty", uri)
   }
 
   time.Sleep(5 * time.Second)
-  env.checkEntityCountForObject("test/test.txt")
+  env.checkEntityCountForObject("test/test.txt", 3)
 
-  req, _ = http.NewRequest("DELETE", url, nil)
-  res, _ = client.Do(req)
-  if res.StatusCode != 204 {
-    t.Errorf("DELETE %s: want 204, got %d", url, res.StatusCode)
+  parsedUri, err := url.Parse(reproxy_uri)
+  if err != nil {
+    t.Errorf("Failed to parse reproxy uri: %s", err)
+  }
+  internalName   := parsedUri.Path
+  internalName    = strings.TrimPrefix(internalName, "/")
+
+  // The object has already been deleted, but make sure that the entity
+  // in the backend storage has been properly deleted
+  for _, ss := range env.StorageServers {
+    localPath := path.Join(ss.Root(), internalName)
+    _, err := os.Stat(localPath)
+    if err == nil {
+      env.Test.Logf("Path %s properly created", localPath)
+    } else {
+      env.Test.Errorf("Path %s should have been created: %s", localPath, err)
+    }
   }
 
-  req, _ = http.NewRequest("GET", url, nil)
+  req, _ = http.NewRequest("DELETE", uri, nil)
+  res, _ = client.Do(req)
+  if res.StatusCode != 204 {
+    t.Errorf("DELETE %s: want 204, got %d", uri, res.StatusCode)
+  }
+
+  req, _ = http.NewRequest("GET", uri, nil)
   res, _ = client.Do(req)
   if res.StatusCode != 404 {
-    t.Errorf("GET %s (after delete): want 404, got %d", url, res.StatusCode)
+    t.Errorf("GET %s (after delete): want 404, got %d", uri, res.StatusCode)
+  }
+
+  // Give it a few more seconds
+  time.Sleep(5 * time.Second)
+
+  // The object has already been deleted, but make sure that the entity
+  // in the backend storage has been properly deleted
+  for _, ss := range env.StorageServers {
+    localPath := path.Join(ss.Root(), internalName)
+    _, err := os.Stat(localPath)
+    if err == nil {
+      env.Test.Errorf("Path %s should have been deleted: %s", localPath, err)
+    } else {
+      env.Test.Logf("Path %s properly deleted", localPath)
+    }
   }
 }
 
-func (self *TestEnv) checkEntityCountForObject(path string) {
+func (self *TestEnv) checkEntityCountForObject(path string, expected int) {
   var bucketName string
   var objectName string
   i := strings.Index(path, "/")
@@ -476,8 +521,10 @@ func (self *TestEnv) checkEntityCountForObject(path string) {
   if err != nil {
     self.FailNow("Failed to find entities for object %d: %s", objectId, err)
   }
-  if len(entities) != 3 {
-    self.Errorf("Expected entity count = 3, got = %d", len(entities))
-    self.Logf("Note: if count < 3, then replicate worker isn't being fired")
+  if len(entities) != expected {
+    self.Errorf("Expected entity count = %d, got = %d", expected, len(entities))
+    self.Logf("Note: if count != %d, then replicate worker isn't being fired", expected)
+  } else {
+    self.Logf("Entity count = %d, got %d", expected, len(entities))
   }
 }
