@@ -22,9 +22,9 @@ While the [Perl version](https://github.com/stf-storage/stf) is used in producti
 
 ## Done, so far
 
-* Simple object creation works.
-* Simple object fetch works.
-* Simple object deletion (on the surface) works.
+* Object creation works.
+* Object fetch works.
+* Object deletion works.
 * Workers: Auto-balancing via simple leader-election
 * Workers: RepairObject / ReplicateObject / DeleteObject done
 
