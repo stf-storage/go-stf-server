@@ -134,6 +134,7 @@ func (self *Context) TxnCommit() error {
     if err := tx.Commit(); err != nil {
       return err
     }
+    Debugf("Commited current transaction")
     self.tx = nil
     return nil
   }

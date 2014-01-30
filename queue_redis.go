@@ -36,6 +36,9 @@ func (self *RedisApi) RedisDB(i int) (*redis.Client, error) {
 
   qc := self.ctx.Config().QueueDBList[i]
   rc := redis.Options(*qc)
+
+  Debugf("Connecting to new Redis server %s", rc.Addr)
+
   client = redis.NewTCPClient(&rc)
   self.RedisClients[i] = client
 

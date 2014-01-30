@@ -1,6 +1,10 @@
 package worker
 
 import (
+  "flag"
+  "log"
+  "os"
+  "path"
   "sync"
   "github.com/stf-storage/go-stf-server"
 )
@@ -60,6 +64,25 @@ func NewBaseWorker(name string, f Fetcher) (*BaseWorker) {
 func (w *BaseWorker) Run() {
   closer := stf.LogMark("[Worker:%s]", w.name)
   defer closer()
+
+  var configFile string
+
+  pwd, err := os.Getwd()
+  if err != nil {
+    log.Fatalf("Could not determine current working directory")
+  }
+
+  defaultConfig := path.Join(pwd, "etc", "config.gcfg")
+
+  flag.StringVar(
+    &configFile,
+    "config",
+    defaultConfig,
+    "Path to config file",
+  )
+  flag.Parse()
+
+  os.Setenv("STF_CONFIG", configFile)
 
   config, err := stf.BootstrapConfig()
   if err != nil {

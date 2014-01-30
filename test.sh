@@ -1,5 +1,6 @@
 #!/bin/sh
 
+set -e
 if [ -z "$SKIP_BUILD" ]; then
   export SKIP_DEPS=1
   sh ./build.sh

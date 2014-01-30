@@ -4,7 +4,6 @@ import (
   "fmt"
   "io"
   "io/ioutil"
-  "log"
   "os"
   "os/exec"
   "path/filepath"
@@ -22,6 +21,7 @@ import (
 
 type TestEnv struct {
   Test        *testing.T
+  Ctx         *Context
   Guards      []func()
   WorkDir     string
   ConfigFile  *os.File
@@ -101,9 +101,12 @@ func (self *TestEnv) startMemcached()  {
   var err error
   for i := 0; i < 5; i++ {
     server, err = tcptest.Start(func (port int) {
-      out, err := os.OpenFile("memcached.log", os.O_CREATE|os.O_WRONLY, 0644)
+      out, err := os.OpenFile("memcached.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 
       cmd = exec.Command("memcached", "-vv", "-p", fmt.Sprintf("%d", port))
+      cmd.SysProcAttr = &syscall.SysProcAttr {
+        Setpgid: true,
+      }
       stderrpipe, err := cmd.StderrPipe()
       if err != nil {
         self.FailNow("Failed to open pipe to stderr")
@@ -113,8 +116,8 @@ func (self *TestEnv) startMemcached()  {
         self.FailNow("Failed to open pipe to stdout")
       }
 
-      io.Copy(out, stderrpipe)
-      io.Copy(out, stdoutpipe)
+      go io.Copy(out, stderrpipe)
+      go io.Copy(out, stdoutpipe)
       cmd.Run()
     }, time.Minute)
     if err == nil {
@@ -174,7 +177,7 @@ func (self *TestEnv) startBackground(p *backgroundproc) {
     go io.Copy(os.Stdout, stdoutpipe)
     go io.Copy(os.Stderr, stderrpipe)
   } else {
-    out, err := os.OpenFile(logfile, os.O_CREATE|os.O_WRONLY, 0644)
+    out, err := os.OpenFile(logfile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
     if err != nil {
       self.FailNow("Could not open logfile: %s", err)
     }
@@ -200,7 +203,6 @@ func (self *TestEnv) startDatabase()  {
   }
   self.Mysqld = mysqld
 
-  time.Sleep(2 * time.Second)
   self.MysqlConfig = &DatabaseConfig {
     "mysql",
     "root",
@@ -321,11 +323,11 @@ func (self *TestEnv) startTemporaryStorageServer(id int, dir string) {
   // Register ourselves in the database
   db, err := ConnectDB(self.MysqlConfig)
   if err != nil {
-    log.Fatalf("Failed to connect to database: %s", err)
+    self.Test.Fatalf("Failed to connect to database: %s", err)
   }
   _, err = db.Exec("INSERT INTO storage (id, uri, mode, cluster_id) VALUES (?, ?, 1, 1)", id, dts.URL)
   if err != nil {
-    log.Fatalf("Failed to insert storage into DB: %s", err)
+    self.Test.Fatalf("Failed to insert storage into DB: %s", err)
   }
 
   self.Guards = append(self.Guards, func() {
@@ -337,11 +339,11 @@ func (self *TestEnv) startTemporaryStorageServers() {
   // Register ourselves in the database
   db, err := ConnectDB(self.MysqlConfig)
   if err != nil {
-    log.Fatalf("Failed to connect to database: %s", err)
+    self.Test.Fatalf("Failed to connect to database: %s", err)
   }
   _, err = db.Exec("INSERT INTO storage_cluster (id, name, mode) VALUES (1, 1, 1)")
   if err != nil {
-    log.Fatalf("Failed to create storage cluster: %s", err)
+    self.Test.Fatalf("Failed to create storage cluster: %s", err)
   }
   for i := 1; i <= 3; i++ {
     mydir := filepath.Join(self.WorkDir, fmt.Sprintf("storage%03d", i))
@@ -369,7 +371,10 @@ func TestBasic(t *testing.T) {
     t.Errorf("%s", err)
   }
 
+  env.Ctx = NewContext(config)
+
   d := NewDispatcher(config)
+  t.Logf("Created dispatcher")
   dts := httptest.NewServer(d)
   defer dts.Close()
 
@@ -417,6 +422,9 @@ func TestBasic(t *testing.T) {
     t.Errorf("GET %s: want X-Reproxy-URL, got empty", url)
   }
 
+  time.Sleep(5 * time.Second)
+  env.checkEntityCountForObject("test/test.txt")
+
   req, _ = http.NewRequest("DELETE", url, nil)
   res, _ = client.Do(req)
   if res.StatusCode != 204 {
@@ -427,5 +435,49 @@ func TestBasic(t *testing.T) {
   res, _ = client.Do(req)
   if res.StatusCode != 404 {
     t.Errorf("GET %s (after delete): want 404, got %d", url, res.StatusCode)
+  }
+}
+
+func (self *TestEnv) checkEntityCountForObject(path string) {
+  var bucketName string
+  var objectName string
+  i := strings.Index(path, "/")
+  if i == -1 {
+    self.Errorf("Failed to parse uri")
+    return
+  } else {
+    bucketName = path[0:i]
+    objectName = path[i+1:len(path)]
+  }
+
+  rollback, err := self.Ctx.TxnBegin()
+  if err != nil {
+    self.Errorf("Failed to start transaction")
+    return
+  }
+  defer rollback()
+
+  bucketId, err := self.Ctx.BucketApi().LookupIdByName(bucketName)
+  if err != nil {
+    self.FailNow("Failed to find id for bucket %s: %s", bucketName, err)
+  }
+  bucket, err := self.Ctx.BucketApi().Lookup(bucketId)
+  if err != nil {
+    self.FailNow("Failed to load bucket %d: %s", bucketId, err)
+  }
+
+  objectId, err := self.Ctx.ObjectApi().LookupIdByBucketAndPath(bucket, objectName)
+  if err != nil {
+    self.Test.Fatalf("Failed to find id for object %s/%s: %s", bucketName, objectName, err)
+  }
+
+  // Find the entities mapped to this object
+  entities, err := self.Ctx.EntityApi().LookupForObject(objectId)
+  if err != nil {
+    self.FailNow("Failed to find entities for object %d: %s", objectId, err)
+  }
+  if len(entities) != 3 {
+    self.Errorf("Expected entity count = 3, got = %d", len(entities))
+    self.Logf("Note: if count < 3, then replicate worker isn't being fired")
   }
 }

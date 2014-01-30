@@ -14,6 +14,7 @@ func ConnectDB(config *DatabaseConfig) (*DB, error) {
     return nil, err
   }
 
+  Debugf("Connecting to database %s", dsn)
   db, err := sql.Open(config.Dbtype, dsn)
   if err != nil {
     return nil, errors.New(

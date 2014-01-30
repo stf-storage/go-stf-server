@@ -39,11 +39,13 @@ func (self *RepairObjectWorker) Work(arg *stf.WorkerArg) (err error) {
   objectApi := ctx.ObjectApi()
   err = objectApi.Repair(objectId)
   if err != nil {
-    err = ctx.TxnCommit()
-    if err != nil {
-      return
-    }
+    return
   }
-  err = nil
+
+  err = ctx.TxnCommit()
+  if err != nil {
+    return
+  }
+
   return
 }

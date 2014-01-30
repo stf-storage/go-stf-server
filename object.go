@@ -68,6 +68,19 @@ func (self *ObjectApi) LookupFromDB(id  uint64) (*Object, error) {
     return nil, err
   }
 
+Debugf("----->")
+  rows, err := tx.Query("SELECT id FROM object")
+  for rows.Next() {
+    var id uint64
+    err = rows.Scan(&id)
+    if err != nil {
+      break
+    } else {
+      Debugf("SELECT ALL OBJECTS -> %d", id)
+    }
+  }
+Debugf("<-----")
+
   row := tx.QueryRow("SELECT id, bucket_id, name, internal_name, size, status, created_at, updated_at  FROM object WHERE id = ?", id)
 
   var o Object
@@ -83,7 +96,7 @@ func (self *ObjectApi) LookupFromDB(id  uint64) (*Object, error) {
   )
 
   if err != nil {
-    Debugf("Failed to execute query (Lookup): %s", err)
+    Debugf("Failed to execute query (LookupFromDB): %s", err)
     return nil, err
   }
 
@@ -520,7 +533,6 @@ func (self *ObjectApi) Store (
         clusterObj.Id,
         objectId,
       )
-      go self.EnqueueRepair(bucketObj, objectObj)
       // Set this to true so that the defered cleanup
       // doesn't get triggered
       done = true

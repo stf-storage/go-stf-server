@@ -478,9 +478,20 @@ func (self *Dispatcher) CreateObject (ctx DispatcherContextWithApi, bucketName s
     return HTTPInternalServerError
   }
 
-  Debugf("Successfully created object %s/%s", bucketName, objectName)
-  ctx.TxnCommit()
+  Debugf("Commiting changes")
+  err = ctx.TxnCommit()
+  if err != nil {
+    Debugf("Failed to commit transaction: %s", err)
+    return HTTPInternalServerError
+  }
 
+  Debugf("Successfully created object %s/%s", bucketName, objectName)
+  go func () {
+    objectObj, err := objectApi.Lookup(objectId)
+    if err == nil {
+      objectApi.EnqueueRepair(bucketObj, objectObj)
+    }
+  }()
   return HTTPCreated
 }
 func (self *Dispatcher) ModifyObject (ctx ContextWithApi, bucketName string, objectName string) *HTTPResponse {
