@@ -9,18 +9,26 @@ Go Implementation of STF Distributed Object Store
 
 # Current Status
 
-go-stf-server is still in heavy development
+STF is a simple, amazon S3-like distributed object store, aimed for people who want to run such systems on their own data centers, on commodity hardware.
 
-## Done
+While the Perl version is used in production for over 3 years handling billions of hits every day, this go version is still in heavy development.
+
+## Features
+
+* Simple GET/POST/PUT/DELETE to perform CRUD operations
+* Multiple copies of the data are stored in the backend storage to prevent data-loss
+* Supports Q4M/Redis as queue backends (use '-tags redis' or '-tags q4m' when compiling)
+* Automatic storage failure detection
+
+## Done, so far
 
 * Simple object creation works.
 * Simple object fetch works.
 * Simple object deletion (on the surface) works.
 * Workers: Auto-balancing via simple leader-election
-* Workers: RepairObject / DeleteObject done
+* Workers: RepairObject / ReplicateObject / DeleteObject done
 
 ## TODO
 
-* Workers
 * Move objects
-* Frontend
+* Web UI
