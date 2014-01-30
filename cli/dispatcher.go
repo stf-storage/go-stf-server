@@ -10,13 +10,14 @@ import (
 
 func main() {
   var configFile string
+  var dispatcherId uint64
+  var listen string
 
   pwd, err := os.Getwd()
   if err != nil {
     log.Fatalf("Could not determine current working directory")
   }
 
-  var dispatcherId uint64
   defaultConfig := path.Join(pwd, "etc", "config.gcfg")
 
   flag.Uint64Var(
@@ -24,6 +25,12 @@ func main() {
     "id",
     0,
     "Dispatcher ID, overrides config file settings",
+  )
+  flag.StringVar(
+    &listen,
+    "listen",
+    "",
+    "host:port to listen on",
   )
   flag.StringVar(
     &configFile,
@@ -41,6 +48,9 @@ func main() {
 
   if dispatcherId > 0 {
     config.Dispatcher.ServerId = dispatcherId
+  }
+  if listen != "" {
+    config.Dispatcher.Listen = listen
   }
 
   d := stf.NewDispatcher(config)
