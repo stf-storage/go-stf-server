@@ -1,6 +1,7 @@
 storage1: ../bin/storage --listen :9001 --root=storage1
 storage2: ../bin/storage --listen :9002 --root=storage2
 storage3: ../bin/storage --listen :9003 --root=storage3
-dispatcher1: ../bin/dispatcher --config ../etc/config.gcfg --id 1001
-dispatcher2: ../bin/dispatcher --config ../etc/config.gcfg --id 1001
-dispatcher3: ../bin/dispatcher --config ../etc/config.gcfg --id 1001
+dispatcher1: ../bin/dispatcher --config ../etc/config.gcfg --id 1001 --listen :8081
+dispatcher2: ../bin/dispatcher --config ../etc/config.gcfg --id 1002 --listen :8082
+dispatcher3: ../bin/dispatcher --config ../etc/config.gcfg --id 1003 --listen :8083
+worker: ../bin/stf-worker --config ../etc/config.gcfg
