@@ -69,16 +69,12 @@ func (self *Dispatcher) IdGenerator() (*UUIDGen) {
   return self.idgen
 }
 
-func (self *Dispatcher) Debugf (format string, args ...interface {}) {
-log.Printf("%#v", self)
-  self.Ctx.Debugf(format, args...)
-}
-
 func (self *Dispatcher) Start () {
+  ctx := self.Ctx
   ncpu := runtime.NumCPU()
   nmaxprocs := runtime.GOMAXPROCS(-1)
   if ncpu != nmaxprocs {
-    Debugf("Setting GOMAXPROCS to %d (was %d)", ncpu, nmaxprocs)
+    ctx.Debugf("Setting GOMAXPROCS to %d (was %d)", ncpu, nmaxprocs)
     runtime.GOMAXPROCS(ncpu)
   }
 
@@ -87,7 +83,7 @@ func (self *Dispatcher) Start () {
   if err != nil {
     panic(fmt.Sprintf("Failed to listen at %s: %s", self.config.Dispatcher.Listen, err))
   }
-  Debugf("Listening on %s", baseListener.Addr())
+  ctx.Debugf("Listening on %s", baseListener.Addr())
 
   s := manners.NewServer()
   l := manners.NewListener(baseListener, s)
@@ -236,12 +232,12 @@ func (self *Dispatcher) CreateBucket(ctx *DispatcherContext, bucketName string, 
   )
 
   if err != nil {
-    Debugf("Failed to create bucket '%s': %s", bucketName, err)
+    ctx.Debugf("Failed to create bucket '%s': %s", bucketName, err)
     return HTTPInternalServerError
   }
 
   if err = ctx.TxnCommit(); err != nil {
-    Debugf("Failed to commit: %s", err)
+    ctx.Debugf("Failed to commit: %s", err)
   }
 
   return HTTPCreated
@@ -253,7 +249,7 @@ func (self *Dispatcher) FetchObject(ctx DispatcherContextWithApi, bucketName str
 
   rbc, err := ctx.TxnBegin()
   if err != nil {
-    Debugf("%s", err)
+    ctx.Debugf("%s", err)
     return HTTPInternalServerError
   }
   defer rbc()
@@ -261,7 +257,7 @@ func (self *Dispatcher) FetchObject(ctx DispatcherContextWithApi, bucketName str
   bucketApi := ctx.BucketApi()
   bucketId, err := bucketApi.LookupIdByName(bucketName)
   if err != nil {
-    Debugf("Bucket %s does not exist", bucketName)
+    ctx.Debugf("Bucket %s does not exist", bucketName)
     return HTTPNotFound
   }
   bucketObj, err := bucketApi.Lookup(bucketId)
@@ -310,7 +306,7 @@ func (self *Dispatcher) FetchObject(ctx DispatcherContextWithApi, bucketName str
   response.Header.Add("X-Accel-Redirect", "/redirect")
 
   if err = ctx.TxnCommit(); err != nil {
-    Debugf("Failed to commit: %s", err)
+    ctx.Debugf("Failed to commit: %s", err)
   }
 
   return response
@@ -319,7 +315,7 @@ func (self *Dispatcher) FetchObject(ctx DispatcherContextWithApi, bucketName str
 func (self *Dispatcher) DeleteObject (ctx ContextWithApi, bucketName string, objectName string) *HTTPResponse {
   rollback, err := ctx.TxnBegin()
   if err != nil {
-    Debugf("Failed to start transaction: %s", err)
+    ctx.Debugf("Failed to start transaction: %s", err)
     return HTTPInternalServerError
   }
   defer rollback()
@@ -342,23 +338,23 @@ func (self *Dispatcher) DeleteObject (ctx ContextWithApi, bucketName string, obj
   objectApi := ctx.ObjectApi()
   objectId, err := objectApi.LookupIdByBucketAndPath(bucketObj, objectName)
   if err != nil {
-    Debugf("Failed to lookup object %s/%s", bucketName, objectName)
+    ctx.Debugf("Failed to lookup object %s/%s", bucketName, objectName)
     return HTTPNotFound
   }
 
   err = objectApi.MarkForDelete(objectId)
   if err != nil {
-    Debugf("Failed to mark object (%d) as deleted: %s", objectId, err)
+    ctx.Debugf("Failed to mark object (%d) as deleted: %s", objectId, err)
     return &HTTPResponse { Code : 500, Message: "Failed to mark object as deleted" }
   }
 
   err = ctx.TxnCommit()
   if err != nil {
-    Debugf("Failed to commit: %s", err)
+    ctx.Debugf("Failed to commit: %s", err)
     return HTTPInternalServerError
   }
 
-  Debugf("Successfully deleted object %s/%s", bucketName, objectName)
+  ctx.Debugf("Successfully deleted object %s/%s", bucketName, objectName)
   go func () {
     queueApi := ctx.QueueApi()
     queueApi.Enqueue("queue_delete_object", strconv.FormatUint(objectId, 10))
@@ -370,7 +366,7 @@ func (self *Dispatcher) DeleteObject (ctx ContextWithApi, bucketName string, obj
 func (self *Dispatcher) DeleteBucket (ctx ContextWithApi, bucketName string) *HTTPResponse {
   rollback, err := ctx.TxnBegin()
   if err != nil {
-    Debugf("Failed to start transaction: %s", err)
+    ctx.Debugf("Failed to start transaction: %s", err)
     return HTTPInternalServerError
   }
   defer rollback()
@@ -384,14 +380,14 @@ func (self *Dispatcher) DeleteBucket (ctx ContextWithApi, bucketName string) *HT
 
   err = bucketApi.MarkForDelete(id)
   if err != nil {
-    Debugf("Failed to delete bucket %s", err)
+    ctx.Debugf("Failed to delete bucket %s", err)
     return &HTTPResponse { Code: 500, Message: "Failed to delete bucket" }
   }
 
   if err = ctx.TxnCommit(); err != nil {
-    Debugf("Failed to commit: %s", err)
+    ctx.Debugf("Failed to commit: %s", err)
   } else {
-    Debugf("Deleted bucket '%s' (id = %d)", bucketName, id)
+    ctx.Debugf("Deleted bucket '%s' (id = %d)", bucketName, id)
   }
 
   return HTTPNoContent
@@ -404,7 +400,7 @@ func (self *Dispatcher) CreateObject (ctx DispatcherContextWithApi, bucketName s
 
   rollback, err := ctx.TxnBegin()
   if err != nil {
-    Debugf("Failed to start transaction: %s", err)
+    ctx.Debugf("Failed to start transaction: %s", err)
     return HTTPInternalServerError
   }
   defer rollback()
@@ -435,7 +431,7 @@ func (self *Dispatcher) CreateObject (ctx DispatcherContextWithApi, bucketName s
   default:
     // Found oldObjectId. Mark this old object to be deleted
     // Note: Don't send to the queue just yet
-    Debugf(
+    ctx.Debugf(
       "Object '%s' on bucket '%s' already exists",
       objectName,
       bucketName,
@@ -462,7 +458,7 @@ func (self *Dispatcher) CreateObject (ctx DispatcherContextWithApi, bucketName s
 
   body, err := ioutil.ReadAll(ctx.Request().Body)
   if err != nil {
-    Debugf("Failed to read request body: %s", err)
+    ctx.Debugf("Failed to read request body: %s", err)
     return HTTPInternalServerError
   }
 
@@ -483,14 +479,14 @@ func (self *Dispatcher) CreateObject (ctx DispatcherContextWithApi, bucketName s
     return HTTPInternalServerError
   }
 
-  Debugf("Commiting changes")
+  ctx.Debugf("Commiting changes")
   err = ctx.TxnCommit()
   if err != nil {
-    Debugf("Failed to commit transaction: %s", err)
+    ctx.Debugf("Failed to commit transaction: %s", err)
     return HTTPInternalServerError
   }
 
-  Debugf("Successfully created object %s/%s", bucketName, objectName)
+  ctx.Debugf("Successfully created object %s/%s", bucketName, objectName)
   go func () {
     queueApi := ctx.QueueApi()
     queueApi.Enqueue("queue_replicate", strconv.FormatUint(objectId, 10))
