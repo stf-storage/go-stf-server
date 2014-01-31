@@ -14,6 +14,7 @@ import (
   "runtime"
   "runtime/debug"
   "strings"
+  "sync"
   "syscall"
   "testing"
   "time"
@@ -56,6 +57,14 @@ func (self *TestEnv) Setup () {
   self.createTemporaryConfig()
   self.startTemporaryStorageServers()
   self.startWorkers()
+
+  os.Setenv("STF_CONFIG", self.ConfigFile.Name())
+  config, err := BootstrapConfig()
+  if err != nil {
+    self.Test.Fatalf("%s", err)
+  }
+
+  self.Ctx = NewContext(config)
 }
 
 func (self *TestEnv) Release () {
@@ -375,14 +384,7 @@ func TestBasic(t *testing.T) {
 
   env.Setup()
 
-  os.Setenv("STF_CONFIG", env.ConfigFile.Name())
-  config, err := BootstrapConfig()
-  if err != nil {
-    t.Errorf("%s", err)
-  }
-
-  env.Ctx = NewContext(config)
-
+  config := env.Ctx.Config()
   d := NewDispatcher(config)
   t.Logf("Created dispatcher")
   dts := httptest.NewServer(d)
@@ -527,4 +529,67 @@ func (self *TestEnv) checkEntityCountForObject(path string, expected int) {
   } else {
     self.Logf("Entity count = %d, got %d", expected, len(entities))
   }
+}
+
+func TestCreateID(t *testing.T) {
+  env := NewTestEnv(t)
+  defer env.Release()
+
+  env.Setup()
+
+  config := env.Ctx.Config()
+  d := NewDispatcher(config)
+  t.Logf("Created dispatcher")
+  dts := httptest.NewServer(d)
+  defer dts.Close()
+
+  t.Logf("Test server ready at %s", dts.URL)
+  bucketUrl := fmt.Sprintf("%s/test_id", dts.URL)
+
+  client := &http.Client {}
+  req, _ := http.NewRequest("PUT", bucketUrl, nil)
+  res, _ := client.Do(req)
+  if res.StatusCode != 201 {
+    t.Fatalf("PUT %s: want 201, got %d", bucketUrl, res.StatusCode)
+  }
+
+  wg := &sync.WaitGroup {}
+  ready := make(chan bool)
+
+  _, filename, _, _ := runtime.Caller(1)
+
+  for i := 0; i < 10; i++ {
+    wg.Add(1)
+    x := i
+    go func(filename string, x int) {
+      defer wg.Done()
+      file, err := os.Open(filename)
+      if err != nil {
+        t.Fatalf("Failed to open %s: %s", filename, err)
+      }
+      fi, err := file.Stat()
+      if err != nil {
+        t.Errorf("Failed to stat %s: %s", filename, err)
+      }
+      uri := fmt.Sprintf("%s/test%03d.txt", bucketUrl, x)
+      req, _ := http.NewRequest("PUT", uri, file)
+      req.ContentLength = fi.Size()
+      client := &http.Client {}
+
+      <-ready
+
+      res, err := client.Do(req)
+      if err != nil {
+        t.Logf("Failed to send request: %s", err)
+      } else if res.StatusCode != 201 {
+        t.Errorf("Failed to create %s: %s", uri, res.Status)
+      }
+    }(filename, x)
+  }
+
+  for i := 0; i < 10; i++ {
+    ready <-true
+  }
+
+  wg.Wait()
 }

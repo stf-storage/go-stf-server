@@ -31,12 +31,14 @@ type TxnManager interface {
 type ContextWithApi interface {
   Cache() *MemdClient
   Txn() (*sql.Tx, error)
+  LogMark(string, ...interface {}) func()
+  Debugf(string, ...interface {})
   ApiHolder
   TxnManager
 }
 
 type Context struct {
-  DebugLogPtr     *DebugLog
+  debug          *DebugLog
   HomeStr         string
   bucketapi       *BucketApi
   config          *Config
@@ -62,6 +64,7 @@ func NewContext(config *Config) *Context {
   return &Context{
     config: config,
     idgen:  idgen,
+    debug:  NewDebugLog(),
   }
 }
 
@@ -134,7 +137,7 @@ func (self *Context) TxnCommit() error {
     if err := tx.Commit(); err != nil {
       return err
     }
-    Debugf("Commited current transaction")
+    self.Debugf("Commited current transaction")
     self.tx = nil
     return nil
   }
@@ -181,20 +184,16 @@ func BootstrapContext() (*Context, error) {
 
   if cfg.Global.Debug {
     log.SetOutput(dbgOutput)
-    ctx.DebugLogPtr = NewDebugLog()
-    ctx.DebugLogPtr.Prefix = "GLOBAL"
-    ctx.DebugLogPtr.Printf("Starting debug log")
+    ctx.debug = NewDebugLog()
+    ctx.debug.Prefix = "GLOBAL"
+    ctx.debug.Printf("Starting debug log")
   }
 
   return ctx, nil
 }
 
-func (self *Context) DebugLog() *DebugLog {
-  return self.DebugLogPtr
-}
-
 func (self *Context) Debugf (format string, args ...interface {}) {
-  if dl := self.DebugLog(); dl != nil {
+  if dl := self.debug; dl != nil {
     dl.Printf(format, args...)
   }
 }
@@ -263,9 +262,10 @@ func (ctx *Context) StorageClusterApi() *StorageClusterApi {
   return ctx.storageclusterapi
 }
 
-
-
-
-
-
+func (ctx *Context) LogMark(format string, args ...interface {}) func() {
+  if d := ctx.debug; d != nil {
+    return d.LogMark(format, args...)
+  }
+  return func() {}
+}
 

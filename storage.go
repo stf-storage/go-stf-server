@@ -24,7 +24,7 @@ func NewStorageApi (ctx ContextWithApi) *StorageApi {
 func (self *StorageApi) LookupFromDB(id uint64) (*Storage, error) {
   ctx := self.Ctx()
 
-  closer := LogMark("[Storage.LookupFromDB]")
+  closer := ctx.LogMark("[Storage.LookupFromDB]")
   defer closer()
 
   tx, err := ctx.Txn()
@@ -44,11 +44,11 @@ func (self *StorageApi) LookupFromDB(id uint64) (*Storage, error) {
   )
 
   if err != nil {
-    Debugf("Failed to execute query (StorageLookup): %s", err)
+    ctx.Debugf("Failed to execute query (StorageLookup): %s", err)
     return &s, err
   }
 
-  Debugf("Successfully loaded storage %d from database", id)
+  ctx.Debugf("Successfully loaded storage %d from database", id)
 
   return &s, nil
 }
@@ -56,7 +56,7 @@ func (self *StorageApi) LookupFromDB(id uint64) (*Storage, error) {
 func (self *StorageApi) Lookup(id uint64) (*Storage, error) {
   ctx := self.Ctx()
 
-  closer := LogMark("[Storage.StorageLookup]")
+  closer := ctx.LogMark("[Storage.StorageLookup]")
   defer closer()
 
   var s Storage
@@ -64,11 +64,11 @@ func (self *StorageApi) Lookup(id uint64) (*Storage, error) {
   cacheKey := cache.CacheKey("storage", strconv.FormatUint(uint64(id), 10))
   err := cache.Get(cacheKey, &s)
   if err == nil {
-    Debugf("Cache HIT for storage %d, returning storage from cache", id)
+    ctx.Debugf("Cache HIT for storage %d, returning storage from cache", id)
     return &s, nil
   }
 
-  Debugf("Cache MISS for '%s', fetching from database", cacheKey)
+  ctx.Debugf("Cache MISS for '%s', fetching from database", cacheKey)
 
   sptr, err := self.LookupFromDB(id)
   if err != nil {
@@ -108,7 +108,7 @@ func (self *StorageApi) LookupFromSql(sql string, binds []interface {}) ([]*Stor
 func (self *StorageApi) LookupMulti(ids []uint64) ([]*Storage, error) {
   ctx := self.Ctx()
 
-  closer := LogMark("[Storage.LookupMulti]")
+  closer := ctx.LogMark("[Storage.LookupMulti]")
   defer closer()
 
   cache := ctx.Cache()
@@ -122,7 +122,7 @@ func (self *StorageApi) LookupMulti(ids []uint64) ([]*Storage, error) {
   var cached map[string]interface {}
   cached, err := cache.GetMulti(keys, func() interface {} { return &Storage {} })
   if err != nil {
-    Debugf("GetMulti failed: %s", err)
+    ctx.Debugf("GetMulti failed: %s", err)
     return nil, err
   }
 
@@ -136,7 +136,7 @@ func (self *StorageApi) LookupMulti(ids []uint64) ([]*Storage, error) {
     if ok {
       s = st
     } else {
-      Debugf("Cache MISS on key '%s'", key)
+      ctx.Debugf("Cache MISS on key '%s'", key)
       misses++
       s, err = self.Lookup(id)
       if err != nil {
@@ -146,12 +146,14 @@ func (self *StorageApi) LookupMulti(ids []uint64) ([]*Storage, error) {
     ret = append(ret, s)
   }
 
-  Debugf("Loaded %d storages (cache misses = %d)", len(ret), misses)
+  ctx.Debugf("Loaded %d storages (cache misses = %d)", len(ret), misses)
   return ret, nil
 }
 
 func (self *StorageApi) LoadInCluster(clusterId uint64) ([]*Storage, error) {
-  closer := LogMark("[Storage.LoadInCluster]")
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Storage.LoadInCluster]")
   defer closer()
 
   sql := `SELECT id FROM storage WHERE cluster_id = ?`
@@ -161,7 +163,7 @@ func (self *StorageApi) LoadInCluster(clusterId uint64) ([]*Storage, error) {
     return nil, err
   }
 
-  Debugf("Loaded %d storages", len(list))
+  ctx.Debugf("Loaded %d storages", len(list))
   return list, nil
 }
 
@@ -203,14 +205,16 @@ func (self *StorageApi) IsWritable(s *Storage, isRepair bool) bool {
 }
 
 func (self *StorageApi) LoadWritable(clusterId uint64, isRepair bool) ([]*Storage, error) {
-  closer := LogMark("[Storage.LoadWritable]")
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Storage.LoadWritable]")
   defer closer()
 
   placeholders := []string {}
   binds := []interface {} { clusterId, }
   modes := self.WritableModes(isRepair)
 
-  Debugf("Repair flag is '%v', using %+v for modes", isRepair, modes)
+  ctx.Debugf("Repair flag is '%v', using %+v for modes", isRepair, modes)
 
   for _, v := range modes {
     binds = append(binds, v)
@@ -227,6 +231,6 @@ func (self *StorageApi) LoadWritable(clusterId uint64, isRepair bool) ([]*Storag
     return nil, err
   }
 
-  Debugf("Loaded %d storages", len(list))
+  ctx.Debugf("Loaded %d storages", len(list))
   return list, nil
 }

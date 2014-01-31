@@ -27,11 +27,11 @@ type Dispatcher struct {
   ResponseWriter  *http.ResponseWriter
   Request         *http.Request
   logger          *apachelog.ApacheLog
+  idgen           *UUIDGen
 }
 
 type DispatcherContext struct {
   *Context
-  idgen           *UUIDGen
   ResponseWriter  http.ResponseWriter
   request         *http.Request
 }
@@ -45,6 +45,7 @@ type DispatcherContextWithApi interface {
 func NewDispatcher(config *Config) *Dispatcher {
   d := &Dispatcher {
     config: config,
+    idgen: NewIdGenerator(config.Dispatcher.ServerId),
   }
 
   d.logger = apachelog.CombinedLog.Clone()
@@ -62,6 +63,10 @@ func NewDispatcher(config *Config) *Dispatcher {
 
 func (ctx *DispatcherContext) Request() *http.Request {
   return ctx.request
+}
+
+func (self *Dispatcher) IdGenerator() (*UUIDGen) {
+  return self.idgen
 }
 
 func (self *Dispatcher) Debugf (format string, args ...interface {}) {
@@ -97,11 +102,10 @@ func (self *Dispatcher) Start () {
 func (self *Dispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
   ctx := &DispatcherContext{
     NewContext(self.config),
-    nil,
     w,
     r,
   }
-  closer := LogMark("[%s %s]", r.Method, r.URL.Path)
+  closer := ctx.LogMark("[%s %s]", r.Method, r.URL.Path)
   defer closer()
 
   lw := apachelog.NewLoggingWriter(w, r, self.logger)
@@ -111,7 +115,7 @@ func (self *Dispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
   defer func() {
     if err := recover(); err != nil {
       debug.PrintStack()
-      Debugf("Error while serving request: %s", err)
+      ctx.Debugf("Error while serving request: %s", err)
       http.Error(w, http.StatusText(500), 500)
     }
   } ()
@@ -122,7 +126,7 @@ func (self *Dispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
     http.Error(w, http.StatusText(404), 404)
     return
   }
-  Debugf(
+  ctx.Debugf(
     "Parsed bucketName = '%s', objectName = '%s'\n",
     bucketName,
     objectName,
@@ -199,12 +203,12 @@ func parseObjectPath(path string) (string, string, error) {
 func (self *Dispatcher) CreateBucket(ctx *DispatcherContext, bucketName string, objectName string) *HTTPResponse {
   rollback, err := ctx.TxnBegin()
   if err != nil {
-    Debugf("Failed to start transaction: %s", err)
+    ctx.Debugf("Failed to start transaction: %s", err)
     return HTTPInternalServerError
   }
   defer rollback()
 
-  closer := LogMark("[Dispatcher.CreateBucket]")
+  closer := ctx.LogMark("[Dispatcher.CreateBucket]")
   defer closer()
 
   if objectName != "" {
@@ -215,15 +219,15 @@ func (self *Dispatcher) CreateBucket(ctx *DispatcherContext, bucketName string, 
 
   id, err := bucketApi.LookupIdByName(bucketName)
   if err == nil { // No error, so we found a bucket
-    Debugf("Bucket '%s' already exists (id = %d)", bucketName, id)
+    ctx.Debugf("Bucket '%s' already exists (id = %d)", bucketName, id)
     return HTTPNoContent
   } else if err != sql.ErrNoRows {
-    Debugf("Error while looking up bucket '%s': %s", bucketName, err)
+    ctx.Debugf("Error while looking up bucket '%s': %s", bucketName, err)
     return HTTPInternalServerError
   }
 
   // If we got here, it's a new Bucket Create it
-  id = ctx.IdGenerator().CreateId()
+  id = self.IdGenerator().CreateId()
   log.Printf("id = %d", id)
 
   err = bucketApi.Create(
@@ -244,7 +248,7 @@ func (self *Dispatcher) CreateBucket(ctx *DispatcherContext, bucketName string, 
 }
 
 func (self *Dispatcher) FetchObject(ctx DispatcherContextWithApi, bucketName string, objectName string) *HTTPResponse {
-  lmc := LogMark("[Dispatcher.FetchObject]")
+  lmc := ctx.LogMark("[Dispatcher.FetchObject]")
   defer lmc()
 
   rbc, err := ctx.TxnBegin()
@@ -395,7 +399,7 @@ func (self *Dispatcher) DeleteBucket (ctx ContextWithApi, bucketName string) *HT
 
 var reMatchSuffix = regexp.MustCompile(`\.([a-zA-Z0-9]+)$`)
 func (self *Dispatcher) CreateObject (ctx DispatcherContextWithApi, bucketName string, objectName string) *HTTPResponse {
-  lmc := LogMark("[Dispatcher.CreateObject]")
+  lmc := ctx.LogMark("[Dispatcher.CreateObject]")
   defer lmc()
 
   rollback, err := ctx.TxnBegin()
@@ -447,7 +451,7 @@ func (self *Dispatcher) CreateObject (ctx DispatcherContextWithApi, bucketName s
     suffix = matches[1]
   }
 
-  objectId := ctx.IdGenerator().CreateId()
+  objectId := self.IdGenerator().CreateId()
 
   // XXX Request.Body is an io.ReadCloser, which doesn't implment
   // a Seek() mechanism. I don't know if there's a better machanism

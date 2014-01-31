@@ -22,7 +22,12 @@ type UUIDGen struct {
 }
 
 func NewIdGenerator (seed uint64) *UUIDGen {
-  return &UUIDGen { seed: seed, mutex: make(chan int, 1), }
+  return &UUIDGen {
+    seed: seed,
+    mutex: make(chan int, 1),
+    serialId: 1,
+    timeId: time.Now().Unix(),
+  }
 }
 
 func (self *UUIDGen) CreateId () uint64 {
@@ -36,6 +41,10 @@ func (self *UUIDGen) CreateId () uint64 {
 
   timeId    := time.Now().Unix()
   serialId  := self.serialId
+  if self.timeId == 0 {
+    self.timeId = timeId
+  }
+
   if self.timeId == timeId {
     serialId++
   } else {

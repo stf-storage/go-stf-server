@@ -28,7 +28,7 @@ func NewEntityApi (ctx ContextWithApi) *EntityApi {
 func (self *EntityApi) Lookup(objectId uint64, storageId uint64) (*Entity, error) {
   ctx := self.Ctx()
 
-  closer := LogMark("[Entity.Lookup]")
+  closer := ctx.LogMark("[Entity.Lookup]")
   defer closer()
 
   tx, err := ctx.Txn()
@@ -42,7 +42,7 @@ func (self *EntityApi) Lookup(objectId uint64, storageId uint64) (*Entity, error
   e := Entity { objectId, storageId, 0 }
   err = row.Scan(&e.Status)
   if err != nil {
-    Debugf(
+    ctx.Debugf(
       "Failed to execute query (Entity.Lookup [%d, %d]): %s",
       objectId,
       storageId,
@@ -51,12 +51,14 @@ func (self *EntityApi) Lookup(objectId uint64, storageId uint64) (*Entity, error
     return nil, err
   }
 
-  Debugf("Successfully loaded entity for object %d storage %d", objectId, storageId)
+  ctx.Debugf("Successfully loaded entity for object %d storage %d", objectId, storageId)
   return &e, nil
 }
 
 func (self *EntityApi) LookupFromRows(rows *sql.Rows) ([]*Entity, error) {
-  closer := LogMark("[Entity.LookupFromRows]")
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Entity.LookupFromRows]")
   defer closer()
 
   var list []*Entity
@@ -69,17 +71,17 @@ func (self *EntityApi) LookupFromRows(rows *sql.Rows) ([]*Entity, error) {
     list = append(list, e)
   }
 
-  Debugf("Loaded %d entities", len(list))
+  ctx.Debugf("Loaded %d entities", len(list))
   return list, nil
 }
 
 func (self *EntityApi) LookupForObjectNotInCluster (objectId uint64, clusterId uint64) ([]*Entity, error) {
   ctx := self.Ctx()
 
-  closer := LogMark("[Entity.LookupForObjectNotInCluster]")
+  closer := ctx.LogMark("[Entity.LookupForObjectNotInCluster]")
   defer closer()
 
-  Debugf("Looking for entities for object %d", objectId)
+  ctx.Debugf("Looking for entities for object %d", objectId)
 
   tx, err := ctx.Txn()
 
@@ -100,7 +102,7 @@ SELECT e.object_id, e.storage_id, e.status
     return nil, err
   }
 
-  Debugf(
+  ctx.Debugf(
     "Loaded %d entities for object %d (except cluster %d)",
     len(list),
     objectId,
@@ -112,10 +114,10 @@ SELECT e.object_id, e.storage_id, e.status
 func (self *EntityApi) LookupForObject (objectId uint64) ([]*Entity, error) {
   ctx := self.Ctx()
 
-  closer := LogMark("[Entity.LookupForObject]")
+  closer := ctx.LogMark("[Entity.LookupForObject]")
   defer closer()
 
-  Debugf("Looking for entities for object %d", objectId)
+  ctx.Debugf("Looking for entities for object %d", objectId)
 
   tx, err := ctx.Txn()
 
@@ -132,7 +134,7 @@ func (self *EntityApi) LookupForObject (objectId uint64) ([]*Entity, error) {
     return nil, err
   }
 
-  Debugf("Loaded %d entities for object %d", len(list), objectId)
+  ctx.Debugf("Loaded %d entities for object %d", len(list), objectId)
   return list, nil
 }
 
@@ -142,7 +144,7 @@ func (self *EntityApi) Create (
 ) error {
   ctx := self.Ctx()
 
-  closer := LogMark("[Entity.Create]")
+  closer := ctx.LogMark("[Entity.Create]")
   defer closer()
 
   tx, err := ctx.Txn()
@@ -152,18 +154,18 @@ func (self *EntityApi) Create (
 
   _, err = tx.Exec("INSERT INTO entity (object_id, storage_id, status, created_at) VALUES (?, ?, 1, UNIX_TIMESTAMP())", objectId, storageId)
   if err != nil {
-    Debugf("Failed to execute query: %s", err)
+    ctx.Debugf("Failed to execute query: %s", err)
     return err
   }
 
-  Debugf("Created entity entry for '%d', '%d'", objectId, storageId)
+  ctx.Debugf("Created entity entry for '%d', '%d'", objectId, storageId)
   return nil
 }
 
 func (self *EntityApi) FetchContent(o *Object, s *Storage, isRepair bool) (io.ReadCloser, error) {
   ctx := self.Ctx()
 
-  closer := LogMark("[Entity.FetchContent]")
+  closer := ctx.LogMark("[Entity.FetchContent]")
   defer closer()
 
   storageApi := ctx.StorageApi()
@@ -184,10 +186,13 @@ func (self *EntityApi) FetchContentNocheck (
   s *Storage,
   isRepair bool,
 ) (io.ReadCloser, error) {
-  closer := LogMark("[Entity.FetchContentNocheck]")
+
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Entity.FetchContentNocheck]")
   defer closer()
 
-  Debugf(
+  ctx.Debugf(
     "Fetching content from storage %d",
     s.Id,
   )
@@ -195,7 +200,7 @@ func (self *EntityApi) FetchContentNocheck (
   client := &http.Client{}
 
   uri := strings.Join([]string{ s.Uri, o.InternalName }, "/")
-  Debugf(
+  ctx.Debugf(
     "Sending GET %s (object = %d, storage = %d)",
     uri,
     o.Id,
@@ -216,7 +221,7 @@ func (self *EntityApi) FetchContentNocheck (
   } else {
     okStr = "FAIL"
   }
-  Debugf(
+  ctx.Debugf(
     "        GET %s was %s (%s)",
     uri,
     okStr,
@@ -224,7 +229,7 @@ func (self *EntityApi) FetchContentNocheck (
   )
 
   if resp.ContentLength != o.Size {
-    Debugf(
+    ctx.Debugf(
       "Fetched content size for object %d does not match registered size?! (got %d, expected %d)",
       o.Id,
       resp.ContentLength,
@@ -233,7 +238,7 @@ func (self *EntityApi) FetchContentNocheck (
     return nil, errors.New("Content size mismatch")
   }
 
-  Debugf(
+  ctx.Debugf(
     "Success fetching %s (object = %d, storage = %d)",
     uri,
     o.Id,
@@ -246,7 +251,7 @@ func (self *EntityApi) FetchContentNocheck (
 func (self *EntityApi) FetchContentFromStorageIds(o *Object, list []uint64, isRepair bool) (io.ReadCloser, error) {
   ctx := self.Ctx()
 
-  closer := LogMark("[Entity.FetchContentFromStorageIds]")
+  closer := ctx.LogMark("[Entity.FetchContentFromStorageIds]")
   defer closer()
 
   storageApi := ctx.StorageApi()
@@ -268,7 +273,7 @@ func (self *EntityApi) FetchContentFromStorageIds(o *Object, list []uint64, isRe
 func (self *EntityApi) FetchContentFromAll (o *Object, isRepair bool) (io.ReadCloser, error) {
   ctx := self.Ctx()
 
-  closer := LogMark("[Entity.FetchContentFromAll]")
+  closer := ctx.LogMark("[Entity.FetchContentFromAll]")
   defer closer()
 
   sql := "SELECT s.id FROM storage s ORDER BY rand()"
@@ -296,7 +301,7 @@ func (self *EntityApi) FetchContentFromAll (o *Object, isRepair bool) (io.ReadCl
 func (self *EntityApi) FetchContentFromAny (o *Object, isRepair bool) (io.ReadCloser, error) {
   ctx := self.Ctx()
 
-  closer := LogMark("[Entity.FetchContentFromAny]")
+  closer := ctx.LogMark("[Entity.FetchContentFromAny]")
   defer closer()
 
   sql := `
@@ -335,17 +340,19 @@ func (self *EntityApi) Store(
   objectObj   *Object,
   input       *bytes.Reader,
 ) error {
-  closer := LogMark("[Entity.Store]")
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Entity.Store]")
   defer closer()
 
   uri := strings.Join([]string { storageObj.Uri, objectObj.InternalName }, "/")
   cl  := input.Len()
 
-  Debugf("Going to store %d bytes in %s", cl, uri)
+  ctx.Debugf("Going to store %d bytes in %s", cl, uri)
 
   req, err := http.NewRequest("PUT", uri, input)
   if err != nil {
-    Debugf("Failed to create request: %s", err)
+    ctx.Debugf("Failed to create request: %s", err)
     return err
   }
 
@@ -353,7 +360,7 @@ func (self *EntityApi) Store(
   client := &http.Client {}
   resp, err := client.Do(req)
   if err != nil {
-    Debugf("Failed to send PUT request to %s (storage = %d): %s", uri, storageObj.Id, err)
+    ctx.Debugf("Failed to send PUT request to %s (storage = %d): %s", uri, storageObj.Id, err)
     return err
   }
 
@@ -364,11 +371,11 @@ func (self *EntityApi) Store(
         resp.Status,
       ),
     )
-    Debugf("Failed to store PUT request to %s (storage = %d): %s", uri, storageObj.Id, err)
+    ctx.Debugf("Failed to store PUT request to %s (storage = %d): %s", uri, storageObj.Id, err)
     return err
   }
 
-  Debugf("Successfully stored object in %s", uri)
+  ctx.Debugf("Successfully stored object in %s", uri)
 
   err = self.Create(
     objectObj.Id,
@@ -386,7 +393,7 @@ func (self *EntityApi) Store(
 func (self *EntityApi) DeleteOrphansForObjectId(objectId uint64) error {
   ctx := self.Ctx()
 
-  closer := LogMark("[Entity.DeletedOrphasForObjectId]")
+  closer := ctx.LogMark("[Entity.DeletedOrphasForObjectId]")
   defer closer()
 
   tx, err := ctx.Txn()
@@ -399,7 +406,9 @@ func (self *EntityApi) DeleteOrphansForObjectId(objectId uint64) error {
 }
 
 func (self *EntityApi) RemoveForDeletedObjectId(objectId uint64) error {
-  closer := LogMark("[EntityRemoveForDeletedObjectId]")
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[EntityRemoveForDeletedObjectId]")
   defer closer()
 
   // Find existing entities 
@@ -420,14 +429,14 @@ func (self *EntityApi) RemoveForDeletedObjectId(objectId uint64) error {
 func (self *EntityApi) CheckHealth(o *Object, s *Storage, isRepair bool) error {
   ctx := self.Ctx()
 
-  closer := LogMark("[Entity.CheckHealth]")
+  closer := ctx.LogMark("[Entity.CheckHealth]")
   defer closer()
 
-  Debugf("Checking entity health on object %d storage %d", o.Id, s.Id)
+  ctx.Debugf("Checking entity health on object %d storage %d", o.Id, s.Id)
 
   _, err := self.Lookup(o.Id, s.Id)
   if err != nil {
-    Debugf(
+    ctx.Debugf(
       "Entity on storage %d for object %d is not recorded.",
       s.Id,
       o.Id,
@@ -442,7 +451,7 @@ func (self *EntityApi) CheckHealth(o *Object, s *Storage, isRepair bool) error {
 
   // An entity in TEMPORARILY_DOWN node needs to be treated as alive
   if s.Mode == STORAGE_MODE_TEMPORARILY_DOWN {
-    Debugf(
+    ctx.Debugf(
       "Storage %d is temporarily down. Assuming this is intact.",
       s.Id,
     )
@@ -456,7 +465,7 @@ func (self *EntityApi) CheckHealth(o *Object, s *Storage, isRepair bool) error {
 
   storageApi := ctx.StorageApi()
   if ! storageApi.IsReadable(s, isRepair) {
-    Debugf(
+    ctx.Debugf(
       "Storage %d is not reable. Adding to invalid list.",
       s.Id,
     )
@@ -464,7 +473,7 @@ func (self *EntityApi) CheckHealth(o *Object, s *Storage, isRepair bool) error {
   }
 
   url := strings.Join([]string{ s.Uri, o.InternalName }, "/")
-  Debugf(
+  ctx.Debugf(
     "Going to check %s (object_id = %d, storage_id = %d)",
     url,
     o.Id,
@@ -487,7 +496,7 @@ func (self *EntityApi) CheckHealth(o *Object, s *Storage, isRepair bool) error {
     st    = res.StatusCode
   }
 
-  Debugf(
+  ctx.Debugf(
     "GET %s was %s (%d)",
     url,
     okStr,
@@ -508,7 +517,7 @@ func (self *EntityApi) CheckHealth(o *Object, s *Storage, isRepair bool) error {
   }
 
   if res.ContentLength != o.Size {
-    Debugf(
+    ctx.Debugf(
       "Object %d sizes do not match (got %d, expected %d)",
       o.Id,
       res.ContentLength,
@@ -523,7 +532,7 @@ func (self *EntityApi) CheckHealth(o *Object, s *Storage, isRepair bool) error {
 func (self *EntityApi) SetStatus(e *Entity, st int) error {
   ctx := self.Ctx()
 
-  closer := LogMark("[Entity.SetStatus]")
+  closer := ctx.LogMark("[Entity.SetStatus]")
   defer closer()
 
   tx, err := ctx.Txn()
@@ -539,7 +548,7 @@ func (self *EntityApi) SetStatus(e *Entity, st int) error {
   )
 
   if err != nil {
-    Debugf(
+    ctx.Debugf(
       "Failed to set status of entity (object %d storage %d) to %d)",
       e.ObjectId,
       e.StorageId,
@@ -548,7 +557,7 @@ func (self *EntityApi) SetStatus(e *Entity, st int) error {
     return err
   }
 
-  Debugf(
+  ctx.Debugf(
     "Successfully set status of entity (object %d storage %d) to %d)",
     e.ObjectId,
     e.StorageId,
@@ -560,7 +569,7 @@ func (self *EntityApi) SetStatus(e *Entity, st int) error {
 func (self *EntityApi) Delete (objectId uint64, storageId uint64) error {
   ctx := self.Ctx()
 
-  closer := LogMark("[Entity.Delete]")
+  closer := ctx.LogMark("[Entity.Delete]")
   defer closer()
 
   tx, err := ctx.Txn()
@@ -575,7 +584,7 @@ func (self *EntityApi) Delete (objectId uint64, storageId uint64) error {
   )
 
   if err != nil {
-    Debugf(
+    ctx.Debugf(
       "Failed to delete logical entity (object %d, storage %d): %s",
       objectId,
       storageId,
@@ -584,7 +593,7 @@ func (self *EntityApi) Delete (objectId uint64, storageId uint64) error {
     return err
   }
 
-  Debugf(
+  ctx.Debugf(
     "Successfully deleted logical entity (object %d, storage %d)",
     objectId,
     storageId,
@@ -612,7 +621,7 @@ func (self *EntityApi) RemoveDeleted (e *Entity, isRepair bool) error {
 func (self *EntityApi) removeInternal(e *Entity, isRepair bool, useDeletedObject bool) error {
   ctx := self.Ctx()
 
-  closer := LogMark("[Entity.Remove]")
+  closer := ctx.LogMark("[Entity.Remove]")
   defer closer()
 
   self.Delete(e.ObjectId, e.StorageId)
@@ -626,7 +635,7 @@ func (self *EntityApi) removeInternal(e *Entity, isRepair bool, useDeletedObject
   var httpAccesibleFlg int64
   err := cache.Get(cacheKey, &httpAccesibleFlg)
   if err == nil && httpAccesibleFlg == -1 {
-    Debugf(
+    ctx.Debugf(
       "Storage %d was previously unaccessible, skipping physical delete",
       e.StorageId,
     )
@@ -640,7 +649,7 @@ func (self *EntityApi) removeInternal(e *Entity, isRepair bool, useDeletedObject
   }
 
   if ! storageApi.IsWritable(s, isRepair) {
-    Debugf("Storage %d is not writable (isRepair = %s)", s.Id, isRepair)
+    ctx.Debugf("Storage %d is not writable (isRepair = %s)", s.Id, isRepair)
     return errors.New("Storage is not writable")
   }
 
@@ -673,11 +682,11 @@ func (self *EntityApi) removeInternal(e *Entity, isRepair bool, useDeletedObject
 
   switch {
   case res.StatusCode == 404:
-    Debugf("%s was not found while deleting (ignored)", uri)
+    ctx.Debugf("%s was not found while deleting (ignored)", uri)
   case res.StatusCode >= 200 && res.StatusCode < 300:
-    Debugf("Successfully deleted %s", uri)
+    ctx.Debugf("Successfully deleted %s", uri)
   default:
-    Debugf("An error occurred while deleting %s: %s", uri, res.Status)
+    ctx.Debugf("An error occurred while deleting %s: %s", uri, res.Status)
   }
 
   return nil

@@ -35,7 +35,7 @@ func NewObjectApi (ctx ContextWithApi) *ObjectApi {
 func (self *ObjectApi) LookupIdByBucketAndPath(bucketObj *Bucket, path string) (uint64, error) {
   ctx := self.Ctx()
 
-  closer := LogMark("[Object.LookupIdByBucketAndPath]")
+  closer := ctx.LogMark("[Object.LookupIdByBucketAndPath]")
   defer closer()
 
   tx, err := ctx.Txn()
@@ -49,13 +49,13 @@ func (self *ObjectApi) LookupIdByBucketAndPath(bucketObj *Bucket, path string) (
   err = row.Scan(&id)
   switch {
   case err == sql.ErrNoRows:
-    Debugf("Could not find any object for %s/%s", bucketObj.Name, path)
+    ctx.Debugf("Could not find any object for %s/%s", bucketObj.Name, path)
     return 0, sql.ErrNoRows
   case err != nil:
     return 0, errors.New(fmt.Sprintf("Failed to execute query (LookupByBucketAndPath): %s", err))
   }
 
-  Debugf("Loaded Object ID '%d' from %s/%s", id, bucketObj.Name, path)
+  ctx.Debugf("Loaded Object ID '%d' from %s/%s", id, bucketObj.Name, path)
 
   return id, nil
 }
@@ -83,7 +83,7 @@ func (self *ObjectApi) LookupFromDB(id  uint64) (*Object, error) {
   )
 
   if err != nil {
-    Debugf("Failed to execute query (LookupFromDB): %s", err)
+    ctx.Debugf("Failed to execute query (LookupFromDB): %s", err)
     return nil, err
   }
 
@@ -93,7 +93,7 @@ func (self *ObjectApi) LookupFromDB(id  uint64) (*Object, error) {
 func (self *ObjectApi) Lookup(id uint64) (*Object, error) {
   ctx := self.Ctx()
 
-  closer := LogMark("[Object.Lookup]")
+  closer := ctx.LogMark("[Object.Lookup]")
   defer closer()
 
   var o Object
@@ -101,7 +101,7 @@ func (self *ObjectApi) Lookup(id uint64) (*Object, error) {
   cacheKey := cache.CacheKey("object", strconv.FormatUint(id, 10))
   err := cache.Get(cacheKey, &o)
   if err == nil {
-    Debugf("Cache HIT for object %d, returning object from cache", id)
+    ctx.Debugf("Cache HIT for object %d, returning object from cache", id)
     return &o, nil
   }
 
@@ -110,14 +110,14 @@ func (self *ObjectApi) Lookup(id uint64) (*Object, error) {
     return nil, err
   }
 
-  Debugf("Successfully loaded object %d from database", id)
+  ctx.Debugf("Successfully loaded object %d from database", id)
   cache.Set(cacheKey, *optr, 3600)
   return optr, nil
 }
 
 func (self *ObjectApi) GetStoragesFor(objectObj *Object) ([]*Storage, error) {
   ctx := self.Ctx()
-  closer := LogMark("[Object.GetStoragesFor]")
+  closer := ctx.LogMark("[Object.GetStoragesFor]")
   defer closer()
 
   /* We cache
@@ -144,7 +144,7 @@ func (self *ObjectApi) GetStoragesFor(objectObj *Object) ([]*Storage, error) {
   }
 
   if len(list) == 0 {
-    Debugf("Cache MISS for storages for object %d, loading from database", objectObj.Id)
+    ctx.Debugf("Cache MISS for storages for object %d, loading from database", objectObj.Id)
 
     var storageIds []int64
     sql := `
@@ -181,7 +181,7 @@ SELECT s.id, s.uri, s.mode
       cache.Set(cacheKey, storageIds, 600)
     }
   }
-  Debugf("Loaded %d storages", len(list))
+  ctx.Debugf("Loaded %d storages", len(list))
   return list, nil
 }
 
@@ -196,7 +196,7 @@ func (self *ObjectApi) EnqueueRepair(
     // so we use defer() here to eat any panic conditions that we
     // may encounter
     if err := recover(); err != nil {
-      Debugf(
+      ctx.Debugf(
         "Error while sending object %d (%s/%s) to repair (ignored): %s",
         objectObj.Id,
         bucketObj.Name,
@@ -205,7 +205,7 @@ func (self *ObjectApi) EnqueueRepair(
     }
   }()
 
-  Debugf(
+  ctx.Debugf(
     "Object %d (%s/%s) being sent to repair (harmless)",
     objectObj.Id,
     bucketObj.Name,
@@ -231,7 +231,9 @@ func (self *ObjectApi) GetAnyValidEntityUrl (
   doHealthCheck bool, // true if we want to run repair
   ifModifiedSince string,
 ) (string, error) {
-  closer := LogMark("[Object.GetAnyValidEntityUrl]")
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Object.GetAnyValidEntityUrl]")
   defer closer()
 
   // XXX We have to do this before we check the entities, because in
@@ -251,7 +253,7 @@ func (self *ObjectApi) GetAnyValidEntityUrl (
 
   client := &http.Client {}
   for _, storage := range storages {
-    Debugf("Attempting to make a request to %s (id = %d)", storage.Uri, storage.Id)
+    ctx.Debugf("Attempting to make a request to %s (id = %d)", storage.Uri, storage.Id)
     url := fmt.Sprintf("%s/%s", storage.Uri, objectObj.InternalName)
     request, err := http.NewRequest("HEAD", url, nil)
     // if this is errornous, we're in deep shit
@@ -264,20 +266,20 @@ func (self *ObjectApi) GetAnyValidEntityUrl (
     }
     resp, err := client.Do(request)
     if err != nil {
-      Debugf("Failed to send request to %s: %s", url, err)
+      ctx.Debugf("Failed to send request to %s: %s", url, err)
       continue
     }
 
     switch resp.StatusCode {
     case 200:
-      Debugf("Request successs, returning URL '%s'", url)
+      ctx.Debugf("Request successs, returning URL '%s'", url)
       return url,nil
     case 304:
       // This is wierd, but this is how we're going to handle it
-      Debugf("Request target is not modified, returning 304")
+      ctx.Debugf("Request target is not modified, returning 304")
       return "", ErrContentNotModified
     default:
-      Debugf("Request for %s failed: %s", url, resp.Status)
+      ctx.Debugf("Request for %s failed: %s", url, resp.Status)
       // If we failed to fetch the object, send it to repair
       if ! doHealthCheck {
         doHealthCheck = true
@@ -291,15 +293,16 @@ func (self *ObjectApi) GetAnyValidEntityUrl (
 
   // if we fell through here, we're done for
   err = errors.New("Could not find a valid entity in any of the storages")
-  Debugf("%s", err)
+  ctx.Debugf("%s", err)
   return "", err
 }
 
 func (self *ObjectApi) MarkForDelete (id uint64) error {
-  closer := LogMark("[Object.MarkForDelete]")
+  ctx := self.Ctx()
+
+  closer := ctx.LogMark("[Object.MarkForDelete]")
   defer closer()
 
-  ctx := self.Ctx()
   tx, err := ctx.Txn()
   if err != nil {
     return err
@@ -308,26 +311,26 @@ func (self *ObjectApi) MarkForDelete (id uint64) error {
   res, err := tx.Exec("REPLACE INTO deleted_object SELECT * FROM object WHERE id = ?", id)
 
   if err != nil {
-    Debugf("Failed to execute query (REPLACE into deleted_object): %s", err)
+    ctx.Debugf("Failed to execute query (REPLACE into deleted_object): %s", err)
     return err
   }
 
   if count, _ := res.RowsAffected(); count <= 0 {
     // Grr, we failed to insert to deleted_object table
     err = errors.New("Failed to insert object into deleted object queue")
-    Debugf("%s", err)
+    ctx.Debugf("%s", err)
     return err
   }
 
   res, err = tx.Exec("DELETE FROM object WHERE id = ?", id)
   if err != nil {
-    Debugf("Failed to execute query (DELETE from object): %s", err)
+    ctx.Debugf("Failed to execute query (DELETE from object): %s", err)
     return err
   }
 
   if count, _ := res.RowsAffected(); count <= 0 {
     err = errors.New("Failed to delete object")
-    Debugf("%s", err)
+    ctx.Debugf("%s", err)
     return err
   }
 
@@ -336,11 +339,11 @@ func (self *ObjectApi) MarkForDelete (id uint64) error {
   err = cache.Delete(cacheKey)
 
   if err != nil && err.Error() != "memcache: cache miss" {
-    Debugf("Failed to delete cache '%s': '%s'", cacheKey, err)
+    ctx.Debugf("Failed to delete cache '%s': '%s'", cacheKey, err)
     return err
   }
 
-  Debugf("Deleted object (%d), and placed it into deleted_object table", id)
+  ctx.Debugf("Deleted object (%d), and placed it into deleted_object table", id)
   return nil
 }
 
@@ -374,7 +377,7 @@ func (self *ObjectApi) Create (
   size int64,
 ) error {
   ctx := self.Ctx()
-  closer := LogMark("[Object.Create]")
+  closer := ctx.LogMark("[Object.Create]")
   defer closer()
   tx, err := ctx.Txn()
   if err != nil {
@@ -384,11 +387,11 @@ func (self *ObjectApi) Create (
   _, err = tx.Exec("INSERT INTO object (id, bucket_id, name, internal_name, size, created_at) VALUES (?, ?, ?, ?, ?, UNIX_TIMESTAMP())", objectId, bucketId, objectName, internalName, size)
 
   if err != nil {
-    Debugf("Failed to execute query: %s", err)
+    ctx.Debugf("Failed to execute query: %s", err)
     return err
   }
 
-  Debugf("Created object entry for '%d' (internal_name = '%s')", objectId, internalName)
+  ctx.Debugf("Created object entry for '%d' (internal_name = '%s')", objectId, internalName)
   return nil
 }
 
@@ -448,7 +451,7 @@ func (self *ObjectApi) Store (
 ) error {
   ctx := self.Ctx()
 
-  closer := LogMark("[Object.Store]")
+  closer := ctx.LogMark("[Object.Store]")
   defer closer()
 
   done := false
@@ -465,13 +468,13 @@ func (self *ObjectApi) Store (
       done = true
       break
     } else {
-      Debugf("Failed to create object in DB: %s", err)
+      ctx.Debugf("Failed to create object in DB: %s", err)
     }
   }
 
   if ! done { // whoa, we fell through here w/o creating the object!
     err := errors.New("Failed to create object entry")
-    Debugf("%s", err)
+    ctx.Debugf("%s", err)
     return err
   }
 
@@ -481,14 +484,14 @@ func (self *ObjectApi) Store (
   done = false
   defer func() {
     if ! done {
-      Debugf("Something went wrong, deleting object to make sure")
+      ctx.Debugf("Something went wrong, deleting object to make sure")
       self.Delete(objectId)
     }
   }()
 
   objectObj, err := self.Lookup(objectId)
   if err != nil {
-    Debugf("Failed to lookup up object from DB: %s", err)
+    ctx.Debugf("Failed to lookup up object from DB: %s", err)
     return err
   }
 
@@ -501,7 +504,7 @@ func (self *ObjectApi) Store (
 
   if len(clusters) <= 0 {
     err := errors.New(fmt.Sprintf("No write candidate cluster found for object %d!", objectId))
-    Debugf("%s", err)
+    ctx.Debugf("%s", err)
     return err
   }
 
@@ -515,7 +518,7 @@ func (self *ObjectApi) Store (
       force,
     )
     if err == nil { // Success!
-      Debugf("Successfully stored objects in cluster %d", clusterObj.Id)
+      ctx.Debugf("Successfully stored objects in cluster %d", clusterObj.Id)
       clusterApi.RegisterForObject(
         clusterObj.Id,
         objectId,
@@ -525,11 +528,11 @@ func (self *ObjectApi) Store (
       done = true
       return nil
     }
-    Debugf("Failed to store in cluster %d: %s", clusterObj.Id, err)
+    ctx.Debugf("Failed to store in cluster %d: %s", clusterObj.Id, err)
   }
 
   err = errors.New("Could not store in ANY clusters!")
-  Debugf("%s", err)
+  ctx.Debugf("%s", err)
 
   return err
 }
@@ -538,10 +541,10 @@ var ErrNothingToRepair = errors.New("Nothing to repair")
 func (self *ObjectApi) Repair (objectId uint64) error {
   ctx := self.Ctx()
 
-  closer := LogMark("[Object.Repair]")
+  closer := ctx.LogMark("[Object.Repair]")
   defer closer()
 
-  Debugf(
+  ctx.Debugf(
     "Repairing object %d",
     objectId,
   )
@@ -549,7 +552,7 @@ func (self *ObjectApi) Repair (objectId uint64) error {
   entityApi := ctx.EntityApi()
   o, err := self.Lookup(objectId)
   if err != nil {
-    Debugf("No matching object %d", objectId)
+    ctx.Debugf("No matching object %d", objectId)
 
     entities, err := entityApi.LookupForObject(objectId)
     if err != nil {
@@ -557,16 +560,16 @@ func (self *ObjectApi) Repair (objectId uint64) error {
     }
 
     if DebugEnabled() {
-      Debugf("Removing orphaned entities in storages:")
+      ctx.Debugf("Removing orphaned entities in storages:")
       for _, e := range entities {
-        Debugf(" + %d", e.StorageId)
+        ctx.Debugf(" + %d", e.StorageId)
       }
     }
     entityApi.DeleteOrphansForObjectId(objectId)
     return ErrNothingToRepair
   }
 
-  Debugf(
+  ctx.Debugf(
     "Fetching master content for object %d from any of the known entities",
     o.Id,
   )
@@ -585,7 +588,7 @@ func (self *ObjectApi) Repair (objectId uint64) error {
     }
   }
 
-  Debugf("Successfully fetched master content")
+  ctx.Debugf("Successfully fetched master content")
 
   clusterApi := ctx.StorageClusterApi()
   clusters, err := clusterApi.LoadCandidatesFor(objectId)
@@ -604,7 +607,7 @@ func (self *ObjectApi) Repair (objectId uint64) error {
   var designatedCluster *StorageCluster
 
   // The object SHOULD be stored in the first instance
-  Debugf(
+  ctx.Debugf(
     "Checking entity health on cluster %d",
     clusters[0].Id,
   )
@@ -614,7 +617,7 @@ func (self *ObjectApi) Repair (objectId uint64) error {
   if ! needsRepair {
     // No need to repair. Just make sure object -> cluster mapping
     // is intact
-    Debugf(
+    ctx.Debugf(
       "Object %d is correctly stored in cluster %d. Object does not need repair",
       objectId,
       clusters[0].Id,
@@ -628,7 +631,7 @@ func (self *ObjectApi) Repair (objectId uint64) error {
     }
   } else {
     // Need to repair
-    Debugf("Object %d needs repair", objectId)
+    ctx.Debugf("Object %d needs repair", objectId)
 
     // If it got here, either the object was not properly in designatedCluster
     // (i.e., some/all of the storages in the cluster did not have this
@@ -644,7 +647,7 @@ func (self *ObjectApi) Repair (objectId uint64) error {
     }
     contentReader := bytes.NewReader(contentBuf)
     for _, cluster := range clusters {
-      Debugf(
+      ctx.Debugf(
         "Attempting to store object %d on cluster %d",
         o.Id,
         cluster.Id,
@@ -659,14 +662,14 @@ func (self *ObjectApi) Repair (objectId uint64) error {
       )
       if err == nil {
         designatedCluster = cluster
-        Debugf(
+        ctx.Debugf(
           "Successfully stored object %d on cluster %d",
           o.Id,
           cluster.Id,
         )
         break
       }
-      Debugf(
+      ctx.Debugf(
         "Failed to store object %d on cluster %d: %s",
         o.Id,
         cluster.Id,
@@ -695,7 +698,7 @@ func (self *ObjectApi) Repair (objectId uint64) error {
   cacheKey  := cache.CacheKey("storages_for", strconv.FormatUint(objectId, 10))
 
   cacheInvalidator := func() {
-    Debugf("Invalidating cache %s", cacheKey)
+    ctx.Debugf("Invalidating cache %s", cacheKey)
     cache.Delete(cacheKey)
   }
 
@@ -705,9 +708,9 @@ func (self *ObjectApi) Repair (objectId uint64) error {
 
   // Note: this err is from entityApi.LookupForObject
   if err != nil {
-    Debugf("Failed to fetch entities for object %d: %s", objectId, err)
+    ctx.Debugf("Failed to fetch entities for object %d: %s", objectId, err)
   } else if entities != nil && len(entities) > 0 {
-    Debugf("Extra entities found: dropping status flag, then proceeding to remove %d entities", len(entities))
+    ctx.Debugf("Extra entities found: dropping status flag, then proceeding to remove %d entities", len(entities))
     for _, e := range entities {
       entityApi.SetStatus(e, 0)
     }
@@ -721,6 +724,6 @@ func (self *ObjectApi) Repair (objectId uint64) error {
     }
   }
 
-  Debugf("Done repair for object %d", objectId)
+  ctx.Debugf("Done repair for object %d", objectId)
   return nil
 }
