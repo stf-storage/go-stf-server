@@ -384,19 +384,22 @@ func TestBasic(t *testing.T) {
 
   env.Setup()
 
-  config := env.Ctx.Config()
-  d := NewDispatcher(config)
-  t.Logf("Created dispatcher")
-  dts := httptest.NewServer(d)
+  dts, err := env.startDispatcher()
+  if err != nil {
+    t.Fatalf("%s", err)
+  }
   defer dts.Close()
 
   client := &http.Client {}
 
   t.Logf("Test server ready at %s", dts.URL)
 
-  bucketUrl := fmt.Sprintf("%s/test", dts.URL)
-  uri := fmt.Sprintf("%s/test.txt", bucketUrl)
-  res, _ := client.Get(uri)
+  bucketUrl := dts.MakeURL("test")
+  uri       := dts.MakeURL("test", "test.txt")
+  res, err  := client.Get(uri)
+  if err != nil {
+    t.Fatalf("Request to '%s' failed: %s", uri, err)
+  }
   if res.StatusCode != 404 {
     t.Errorf("GET on non-existent URL %s: want 404, got %d", uri, res.StatusCode)
   }
@@ -531,24 +534,47 @@ func (self *TestEnv) checkEntityCountForObject(path string, expected int) {
   }
 }
 
+type TestDispatcherServer struct {
+  *httptest.Server
+}
+
+func (env *TestEnv) startDispatcher() (*TestDispatcherServer, error){
+  config := env.Ctx.Config()
+  d := NewDispatcher(config)
+  dts := httptest.NewServer(d)
+
+  return &TestDispatcherServer { dts }, nil
+}
+
+func (t *TestDispatcherServer) MakeURL(args ...string) string {
+  return fmt.Sprintf("%s/%s", t.URL, strings.Join(args, "/"))
+}
+
 func TestCreateID(t *testing.T) {
   env := NewTestEnv(t)
   defer env.Release()
 
   env.Setup()
 
-  config := env.Ctx.Config()
-  d := NewDispatcher(config)
-  t.Logf("Created dispatcher")
-  dts := httptest.NewServer(d)
+  dts, err := env.startDispatcher()
+  if err != nil {
+    t.Fatalf("%s", err)
+  }
   defer dts.Close()
 
   t.Logf("Test server ready at %s", dts.URL)
-  bucketUrl := fmt.Sprintf("%s/test_id", dts.URL)
+  bucketUrl := dts.MakeURL("test_id")
 
   client := &http.Client {}
-  req, _ := http.NewRequest("PUT", bucketUrl, nil)
-  res, _ := client.Do(req)
+  req, err := http.NewRequest("PUT", bucketUrl, nil)
+  if err != nil {
+    t.Fatalf("Failed to create new request: %s", err)
+  }
+  res, err := client.Do(req)
+  if err != nil {
+    t.Fatalf("Failed to send request to '%s': %s", bucketUrl, err)
+  }
+
   if res.StatusCode != 201 {
     t.Fatalf("PUT %s: want 201, got %d", bucketUrl, res.StatusCode)
   }
