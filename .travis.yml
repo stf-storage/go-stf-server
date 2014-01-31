@@ -12,7 +12,7 @@ after_success:
     - go get code.google.com/p/go.tools/cmd/cover
     - export PATH="$HOME/gopath/bin:$PATH"
     - go test -coverprofile=c.out -tags redis
-    - goveralls c.out $COVERALLS_TOKEN
+    - goveralls -coverprofile=c.out $COVERALLS_TOKEN
 env:
     global:
         secure: "fhKD8yvdUoK5JJhSe4wte+spwUIg8C6VQqpYh31thL9DyfeuYvGC6JwWlEkm92XKTrKe+uJYICh5TlJSI+t3VNNwPV8CsQp+qlzn1MWjnfz9lj7/gfN62Hd4j9cQKeHlDQi2MdfGR0Eq3LcyB4yvZoLGtvoN18W9SQUSp7xJDvM="
