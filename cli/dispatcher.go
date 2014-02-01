@@ -6,6 +6,7 @@ import (
   "os"
   "path"
   "github.com/stf-storage/go-stf-server"
+  "github.com/stf-storage/go-stf-server/dispatcher"
 )
 
 func main() {
@@ -53,6 +54,6 @@ func main() {
     config.Dispatcher.Listen = listen
   }
 
-  d := stf.NewDispatcher(config)
+  d := dispatcher.New(config)
   d.Start()
 }

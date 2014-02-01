@@ -1,4 +1,4 @@
-package stf
+package dispatcher
 
 import (
   "bytes"
@@ -15,15 +15,16 @@ import (
   "strings"
   "strconv"
   "github.com/braintree/manners"
+  "github.com/stf-storage/go-stf-server"
   "github.com/lestrrat/go-apache-logformat"
   "github.com/lestrrat/go-file-rotatelogs"
   "github.com/lestrrat/go-server-starter-listener"
 )
 
 type Dispatcher struct {
-  config          *Config
+  config          *stf.Config
   Address         string
-  Ctx             *Context
+  Ctx             *stf.Context
   ResponseWriter  *http.ResponseWriter
   Request         *http.Request
   logger          *apachelog.ApacheLog
@@ -31,18 +32,17 @@ type Dispatcher struct {
 }
 
 type DispatcherContext struct {
-  *Context
+  *stf.Context
   ResponseWriter  http.ResponseWriter
   request         *http.Request
 }
 
 type DispatcherContextWithApi interface {
-  ContextWithApi
+  stf.ContextWithApi
   Request() *http.Request
-  IdGenerator() *UUIDGen
 }
 
-func NewDispatcher(config *Config) *Dispatcher {
+func New(config *stf.Config) *Dispatcher {
   d := &Dispatcher {
     config: config,
     idgen: NewIdGenerator(config.Dispatcher.ServerId),
@@ -70,7 +70,7 @@ func (self *Dispatcher) IdGenerator() (*UUIDGen) {
 }
 
 func (self *Dispatcher) Start () {
-  ctx := self.Ctx
+  ctx := stf.NewContext(self.config)
   ncpu := runtime.NumCPU()
   nmaxprocs := runtime.GOMAXPROCS(-1)
   if ncpu != nmaxprocs {
@@ -97,7 +97,7 @@ func (self *Dispatcher) Start () {
 
 func (self *Dispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
   ctx := &DispatcherContext{
-    NewContext(self.config),
+    stf.NewContext(self.config),
     w,
     r,
   }
@@ -148,6 +148,13 @@ func (self *Dispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
     }
   case "POST":
     resp = self.ModifyObject(ctx, bucketName, objectName)
+  case "MOVE":
+    dest := r.Header.Get("X-STF-Move-Destination")
+    if objectName == "" {
+      resp = self.RenameBucket(ctx, bucketName, dest)
+    } else {
+      resp = self.RenameObject(ctx, bucketName, objectName, dest)
+    }
   default:
     resp = HTTPMethodNotAllowed
     return
@@ -293,7 +300,7 @@ func (self *Dispatcher) FetchObject(ctx DispatcherContextWithApi, bucketName str
   switch {
   case uri == "":
     return HTTPNotFound
-  case err == ErrContentNotModified:
+  case err == stf.ErrContentNotModified:
     // Special case
     return HTTPNotModified
   case err != nil:
@@ -312,7 +319,7 @@ func (self *Dispatcher) FetchObject(ctx DispatcherContextWithApi, bucketName str
   return response
 }
 
-func (self *Dispatcher) DeleteObject (ctx ContextWithApi, bucketName string, objectName string) *HTTPResponse {
+func (self *Dispatcher) DeleteObject (ctx stf.ContextWithApi, bucketName string, objectName string) *HTTPResponse {
   rollback, err := ctx.TxnBegin()
   if err != nil {
     ctx.Debugf("Failed to start transaction: %s", err)
@@ -363,7 +370,7 @@ func (self *Dispatcher) DeleteObject (ctx ContextWithApi, bucketName string, obj
   return HTTPNoContent
 }
 
-func (self *Dispatcher) DeleteBucket (ctx ContextWithApi, bucketName string) *HTTPResponse {
+func (self *Dispatcher) DeleteBucket (ctx stf.ContextWithApi, bucketName string) *HTTPResponse {
   rollback, err := ctx.TxnBegin()
   if err != nil {
     ctx.Debugf("Failed to start transaction: %s", err)
@@ -493,6 +500,20 @@ func (self *Dispatcher) CreateObject (ctx DispatcherContextWithApi, bucketName s
   }()
   return HTTPCreated
 }
-func (self *Dispatcher) ModifyObject (ctx ContextWithApi, bucketName string, objectName string) *HTTPResponse {
+
+func (self *Dispatcher) ModifyObject (ctx stf.ContextWithApi, bucketName string, objectName string) *HTTPResponse {
   return nil
 }
+
+// MOVE /bucket_name
+// X-STF-Move-Destination: /new_name
+func (self *Dispatcher) RenameBucket (ctx stf.ContextWithApi, bucketName string, dest string) *HTTPResponse {
+  return nil
+}
+
+// MOVE /bucket_name
+// X-STF-Move-Destination: /new_name
+func (self *Dispatcher) RenameObject(ctx stf.ContextWithApi, bucketName string, objectName string, dest string) *HTTPResponse {
+  return nil
+}
+

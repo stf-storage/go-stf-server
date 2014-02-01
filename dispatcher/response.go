@@ -1,4 +1,4 @@
-package stf
+package dispatcher
 
 import (
   "net/http"

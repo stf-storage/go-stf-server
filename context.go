@@ -51,7 +51,6 @@ type Context struct {
   cache           *MemdClient
   maindb          *DB
   tx              *sql.Tx
-  idgen           *UUIDGen
 }
 
 func (self *Context) Home() string { return self.HomeStr }
@@ -60,10 +59,8 @@ func (ctx *Context) LoadConfig() (*Config, error) {
 }
 
 func NewContext(config *Config) *Context {
-  idgen := NewIdGenerator(config.Dispatcher.ServerId)
   return &Context{
     config: config,
-    idgen:  idgen,
     debug:  NewDebugLog(),
   }
 }
@@ -94,10 +91,6 @@ func (self *Context) MainDB() (*DB, error) {
 
 func (self *Context) Config() *Config {
   return self.config
-}
-
-func (self *Context) IdGenerator() *UUIDGen {
-  return self.idgen
 }
 
 func (self *ScopedContext) EndScope() {}
