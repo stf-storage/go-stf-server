@@ -1,4 +1,4 @@
-package stf
+package stftest
 
 import (
   "fmt"
@@ -18,25 +18,27 @@ import (
   "syscall"
   "testing"
   "time"
+  "github.com/stf-storage/go-stf-server"
+  "github.com/stf-storage/go-stf-server/dispatcher"
   "github.com/lestrrat/go-tcptest"
   "github.com/lestrrat/go-test-mysqld"
 )
 
 type TestEnv struct {
   Test        *testing.T
-  Ctx         *Context
+  Ctx         *stf.Context
   Guards      []func()
   WorkDir     string
   ConfigFile  *os.File
   Mysqld      *mysqltest.TestMysqld
-  MysqlConfig *DatabaseConfig
+  MysqlConfig *stf.DatabaseConfig
   MemdPort    int
-  QueueConfig *QueueConfig
-  StorageServers []*StorageServer
+  QueueConfig *stf.QueueConfig
+  StorageServers []*stf.StorageServer
 }
 
 type TestDatabase struct {
-  Config  *DatabaseConfig
+  Config  *stf.DatabaseConfig
   Socket  string
   DataDir string
   PidFile string
@@ -50,6 +52,13 @@ func NewTestEnv (t *testing.T) (*TestEnv) {
 }
 
 func (self *TestEnv) Setup () {
+  if home := os.Getenv("STF_HOME"); home != "" {
+    oldpath := os.Getenv("PATH")
+    newpath := path.Join(home, "bin")
+    self.Test.Logf("Adding %s to path", newpath)
+    os.Setenv("PATH", strings.Join([]string { newpath, oldpath }, ":"))
+  }
+
   self.createTemporaryDir()
   self.startDatabase()
   self.startQueue()
@@ -59,12 +68,12 @@ func (self *TestEnv) Setup () {
   self.startWorkers()
 
   os.Setenv("STF_CONFIG", self.ConfigFile.Name())
-  config, err := BootstrapConfig()
+  config, err := stf.BootstrapConfig()
   if err != nil {
     self.Test.Fatalf("%s", err)
   }
 
-  self.Ctx = NewContext(config)
+  self.Ctx = stf.NewContext(config)
 }
 
 func (self *TestEnv) Release () {
@@ -164,7 +173,7 @@ func (self *TestEnv) startBackground(p *backgroundproc) {
   logfile := p.logfile
   path, err := exec.LookPath(cmdname)
   if err != nil {
-    self.FailNow("Failed to find %s executable: %s", cmdname, err)
+    self.Test.Fatalf("Failed to find %s executable: %s", cmdname, err)
   }
 
   cmd := exec.Command(path, args...)
@@ -215,7 +224,7 @@ func (self *TestEnv) startDatabase()  {
   }
   self.Mysqld = mysqld
 
-  self.MysqlConfig = &DatabaseConfig {
+  self.MysqlConfig = &stf.DatabaseConfig {
     "mysql",
     "root",
     "",
@@ -229,7 +238,7 @@ func (self *TestEnv) startDatabase()  {
     }
   })
 
-  _, err = ConnectDB(self.MysqlConfig)
+  _, err = stf.ConnectDB(self.MysqlConfig)
   if err != nil {
     self.FailNow("Failed to connect to database: %s", err)
   }
@@ -243,12 +252,12 @@ func (self *TestEnv) createDatabase() {
 
   // Read from DDL file, each statement (delimited by ";")
   // then execute each statement via db.Exec()
-  db, err := ConnectDB(self.MysqlConfig)
+  db, err := stf.ConnectDB(self.MysqlConfig)
   if err != nil {
     self.FailNow("Failed to connect to database: %s", err)
   }
 
-  file, err := os.Open("stf.sql")
+  file, err := os.Open("../stf.sql")
   if err != nil {
     self.FailNow("Failed to read DDL: %s", err)
   }
@@ -328,12 +337,12 @@ Servers = 127.0.0.1:%d
   })
 }
 
-func (self *TestEnv) startTemporaryStorageServer(id int, dir string) (*StorageServer) {
-  ss := NewStorageServer("dummy", dir)
+func (self *TestEnv) startTemporaryStorageServer(id int, dir string) (*stf.StorageServer) {
+  ss := stf.NewStorageServer("dummy", dir)
   dts := httptest.NewServer(ss)
 
   // Register ourselves in the database
-  db, err := ConnectDB(self.MysqlConfig)
+  db, err := stf.ConnectDB(self.MysqlConfig)
   if err != nil {
     self.Test.Fatalf("Failed to connect to database: %s", err)
   }
@@ -351,7 +360,7 @@ func (self *TestEnv) startTemporaryStorageServer(id int, dir string) (*StorageSe
 
 func (self *TestEnv) startTemporaryStorageServers() {
   // Register ourselves in the database
-  db, err := ConnectDB(self.MysqlConfig)
+  db, err := stf.ConnectDB(self.MysqlConfig)
   if err != nil {
     self.Test.Fatalf("Failed to connect to database: %s", err)
   }
@@ -361,7 +370,7 @@ func (self *TestEnv) startTemporaryStorageServers() {
   }
 
   max := 3
-  servers := make([]*StorageServer, max)
+  servers := make([]*stf.StorageServer, max)
   for i := 1; i <= max; i++ {
     mydir := filepath.Join(self.WorkDir, fmt.Sprintf("storage%03d", i))
     servers[i - 1] = self.startTemporaryStorageServer(i, mydir)
@@ -372,7 +381,7 @@ func (self *TestEnv) startTemporaryStorageServers() {
 
 func (self *TestEnv) startWorkers() {
   self.startBackground(&backgroundproc {
-    cmdname: "bin/stf-worker",
+    cmdname: "stf-worker",
     args: []string{ fmt.Sprintf("--config=%s", self.ConfigFile.Name()) },
     logfile: "worker.log",
   })
@@ -394,7 +403,6 @@ func TestBasic(t *testing.T) {
 
   t.Logf("Test server ready at %s", dts.URL)
 
-  bucketUrl := dts.MakeURL("test")
   uri       := dts.MakeURL("test", "test.txt")
   res, err  := client.Get(uri)
   if err != nil {
@@ -404,35 +412,18 @@ func TestBasic(t *testing.T) {
     t.Errorf("GET on non-existent URL %s: want 404, got %d", uri, res.StatusCode)
   }
 
-  req, err := http.NewRequest("PUT", bucketUrl, nil)
-  res, _ = client.Do(req)
-  if res.StatusCode != 201 {
-    t.Errorf("PUT %s: want 201, got %d", bucketUrl, res.StatusCode)
-  }
+  stfclient := NewTestSTFClient(t, dts)
 
+  stfclient.ObjectGetExpect("test/test.txt", 404, "Fetch before creating an object should be 404")
+  env.Test.Logf("Create bucket:")
+  stfclient.BucketCreate("test")
+
+  env.Test.Logf("Create new object:")
   _, filename, _, _ := runtime.Caller(1)
-  file, err := os.Open(filename)
-  if err != nil {
-    t.Errorf("Failed to open %s: %s", filename, err)
-  }
-  fi, err := file.Stat()
-  if err != nil {
-    t.Errorf("Failed to stat %s: %s", filename, err)
-  }
+  stfclient.FilePut("test/test.txt", filename)
 
-  req, _ = http.NewRequest("PUT", uri, file)
-  req.ContentLength = fi.Size()
-  res, _ = client.Do(req)
-  if res.StatusCode != 201 {
-    t.Errorf("PUT %s: want 201, got %d", uri, res.StatusCode)
-  }
-
-  req, _ = http.NewRequest("GET", uri, nil)
-  res, _ = client.Do(req)
-  if res.StatusCode != 200 {
-    t.Errorf("GET %s: want 200, got %d", uri, res.StatusCode)
-  }
-
+  env.Test.Logf("Fetch after create new object:")
+  res = stfclient.ObjectGet("test/test.txt")
   reproxy_uri := res.Header.Get("X-Reproxy-URL")
   if reproxy_uri == "" {
     t.Errorf("GET %s: want X-Reproxy-URL, got empty", uri)
@@ -460,17 +451,8 @@ func TestBasic(t *testing.T) {
     }
   }
 
-  req, _ = http.NewRequest("DELETE", uri, nil)
-  res, _ = client.Do(req)
-  if res.StatusCode != 204 {
-    t.Errorf("DELETE %s: want 204, got %d", uri, res.StatusCode)
-  }
-
-  req, _ = http.NewRequest("GET", uri, nil)
-  res, _ = client.Do(req)
-  if res.StatusCode != 404 {
-    t.Errorf("GET %s (after delete): want 404, got %d", uri, res.StatusCode)
-  }
+  stfclient.ObjectDelete("test/test.txt")
+  stfclient.ObjectGetExpect("test/test.txt", 404, "Fetch after DELETE should be 404")
 
   // Give it a few more seconds
   time.Sleep(5 * time.Second)
@@ -540,7 +522,7 @@ type TestDispatcherServer struct {
 
 func (env *TestEnv) startDispatcher() (*TestDispatcherServer, error){
   config := env.Ctx.Config()
-  d := NewDispatcher(config)
+  d := dispatcher.New(config)
   dts := httptest.NewServer(d)
 
   return &TestDispatcherServer { dts }, nil
@@ -619,3 +601,18 @@ func TestCreateID(t *testing.T) {
 
   wg.Wait()
 }
+
+/*
+func TestMove(t *testing.T) {
+  env := NewTestEnv(t)
+  defer env.Release()
+
+  env.Setup()
+
+  dts, err := env.startDispatcher()
+  if err != nil {
+    t.Fatalf("%s", err)
+  }
+  defer dts.Close()
+}
+*/

@@ -43,6 +43,8 @@ func (self *ObjectApi) LookupIdByBucketAndPath(bucketObj *Bucket, path string) (
     return 0, err
   }
 
+  ctx.Debugf("Looking for object where bucket_id = %d, name = %d", bucketObj.Id, path)
+
   row := tx.QueryRow("SELECT id FROM object WHERE bucket_id = ? AND name = ?", bucketObj.Id, path )
 
   var id uint64

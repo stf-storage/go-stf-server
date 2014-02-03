@@ -1,6 +1,6 @@
 // +build q4m
 
-package stf
+package stftest
 
 import(
   "fmt"

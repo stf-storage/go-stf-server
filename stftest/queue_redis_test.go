@@ -1,6 +1,6 @@
 // +build redis
 
-package stf
+package stftest
 
 import (
   "fmt"
@@ -9,6 +9,7 @@ import (
   "os/exec"
   "syscall"
   "time"
+  "github.com/stf-storage/go-stf-server"
   "github.com/lestrrat/go-tcptest"
   _ "github.com/vmihailenco/redis/v2"
 )
@@ -49,7 +50,7 @@ func (self *TestEnv) startQueue() {
   }
 
   addr := fmt.Sprintf("127.0.0.1:%d", tt.Port())
-  self.QueueConfig = &QueueConfig{
+  self.QueueConfig = &stf.QueueConfig{
     Addr: addr,
   }
 

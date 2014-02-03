@@ -11,4 +11,5 @@ if [ -z "$STF_QUEUE_TYPE" ]; then
 fi
 
 export STF_DEBUG="1:`pwd`/test.log"
-exec go test -tags $STF_QUEUE_TYPE -v .
+export STF_HOME=`pwd`
+exec go test -tags $STF_QUEUE_TYPE -run Basic -v github.com/stf-storage/go-stf-server/stftest
