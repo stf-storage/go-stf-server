@@ -4,7 +4,7 @@ import (
   "log"
 )
 
-func ExampleScopedContext_NewScope() {
+func ExampleScopedContext() {
   config, err := BootstrapConfig()
   if err != nil {
     log.Fatalf("Failed to bootstrap config: %s", err)
@@ -12,11 +12,11 @@ func ExampleScopedContext_NewScope() {
 
   for {
     ctx := NewContext(config)
-    release, err := ctx.TxnBegin()
+    rollback, err := ctx.TxnBegin()
     if err != nil {
       log.Fatalf("Failed to start transaction: %s", err)
     }
-    defer release()
+    defer rollback()
 
     // Do stuff...
     ctx.TxnCommit()
