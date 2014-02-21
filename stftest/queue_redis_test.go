@@ -9,7 +9,7 @@ import (
   "os/exec"
   "syscall"
   "time"
-  "github.com/stf-storage/go-stf-server"
+  "github.com/stf-storage/go-stf-server/config"
   "github.com/lestrrat/go-tcptest"
   _ "github.com/vmihailenco/redis/v2"
 )
