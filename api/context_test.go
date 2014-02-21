@@ -1,11 +1,12 @@
-package stf
+package api
 
 import (
   "log"
+  "github.com/stf-storage/go-stf-server/config"
 )
 
 func ExampleScopedContext() {
-  config, err := BootstrapConfig()
+  config, err := config.BootstrapConfig()
   if err != nil {
     log.Fatalf("Failed to bootstrap config: %s", err)
   }
