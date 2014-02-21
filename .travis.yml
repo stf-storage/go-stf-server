@@ -11,8 +11,7 @@ after_success:
     - go get github.com/mattn/goveralls
     - go get code.google.com/p/go.tools/cmd/cover
     - export PATH="$TRAVIS_BUILD_DIR/bin:$HOME/gopath/bin:$PATH"
-    - go test -coverprofile=c.out -tags $STF_QUEUE_TYPE -run Basic -v github.com/stf-storage/go-stf-server/stftest
-    - goveralls -coverprofile=c.out $COVERALLS_TOKEN
+    - goveralls -v -repotoken $COVERALLS_TOKEN -coverprofile=c.out -tags $STF_QUEUE_TYPE -run Basic -v github.com/stf-storage/go-stf-server/stftest
 env:
     global:
         secure: "fhKD8yvdUoK5JJhSe4wte+spwUIg8C6VQqpYh31thL9DyfeuYvGC6JwWlEkm92XKTrKe+uJYICh5TlJSI+t3VNNwPV8CsQp+qlzn1MWjnfz9lj7/gfN62Hd4j9cQKeHlDQi2MdfGR0Eq3LcyB4yvZoLGtvoN18W9SQUSp7xJDvM="
