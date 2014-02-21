@@ -1,6 +1,6 @@
 // +build redis
 
-package stf
+package api
 
 import (
   "errors"
@@ -9,25 +9,25 @@ import (
   "github.com/vmihailenco/redis/v2"
 )
 
-type QueueConfig redis.Options
-type RedisApi struct {
-  BaseQueueApi
+type Redis struct {
+  BaseApi
+  currentQueue int
   RedisClients  []*redis.Client
 }
-func NewRedisApi(ctx ContextForQueueApi) *RedisApi {
+func NewRedis(ctx ContextWithApi) *Redis {
   // Find the number of queues, get a random queueIdx
   cfg := ctx.Config()
   max := len(cfg.QueueDBList)
   qidx := rand.Intn(max)
 
-  return &RedisApi { BaseQueueApi { qidx, ctx }, make([]*redis.Client, max, max) }
+  return &Redis { BaseApi { ctx }, qidx, make([]*redis.Client, max, max) }
 }
 
-func (self *RedisApi) NumQueueDB () int {
+func (self *Redis) NumQueueDB () int {
   return len(self.ctx.Config().QueueDBList)
 }
 
-func (self *RedisApi) RedisDB(i int) (*redis.Client, error) {
+func (self *Redis) RedisDB(i int) (*redis.Client, error) {
 
   client := self.RedisClients[i]
   if client != nil {
@@ -37,7 +37,7 @@ func (self *RedisApi) RedisDB(i int) (*redis.Client, error) {
   qc := self.ctx.Config().QueueDBList[i]
   rc := redis.Options(*qc)
 
-  Debugf("Connecting to new Redis server %s", rc.Addr)
+  self.ctx.Debugf("Connecting to new Redis server %s", rc.Addr)
 
   client = redis.NewTCPClient(&rc)
   self.RedisClients[i] = client
@@ -45,11 +45,11 @@ func (self *RedisApi) RedisDB(i int) (*redis.Client, error) {
   return client, nil
 }
 
-func NewQueueApi(ctx ContextForQueueApi) (QueueApiInterface) {
-  return NewRedisApi(ctx)
+func NewQueue(ctx ContextWithApi) (QueueApiInterface) {
+  return NewRedis(ctx)
 }
 
-func (self *RedisApi) Enqueue(qname string, data string) error {
+func (self *Redis) Enqueue(qname string, data string) error {
   // Lpush
   max := self.NumQueueDB()
   for i := 0; i < max; i++ {
@@ -76,7 +76,7 @@ func (self *RedisApi) Enqueue(qname string, data string) error {
   return errors.New("Failed to enqueue into any queue")
 }
 
-func (self *RedisApi) Dequeue(qname string, timeout int) (*WorkerArg, error) {
+func (self *Redis) Dequeue(qname string, timeout int) (*WorkerArg, error) {
   // Rpop
   max := self.NumQueueDB()
   for i := 0; i < max; i++ {
@@ -102,7 +102,7 @@ func (self *RedisApi) Dequeue(qname string, timeout int) (*WorkerArg, error) {
       continue
     }
 
-    Debugf("val -> %s", val)
+    self.Ctx().Debugf("val -> %s", val)
     return &WorkerArg{ Arg: val }, nil
 
   }

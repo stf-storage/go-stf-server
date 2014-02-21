@@ -4,6 +4,7 @@ import (
   "fmt"
   "time"
   "github.com/stf-storage/go-stf-server"
+  "github.com/stf-storage/go-stf-server/api"
 )
 
 type IntervalFetcher struct {
@@ -33,7 +34,7 @@ func (i *IntervalFetcher) Loop(w Worker) {
   for w.ActiveSlaves() > 0 {
     t := <-i.tickChan
 
-    w.SendJob(&stf.WorkerArg {
+    w.SendJob(&api.WorkerArg {
       Arg: fmt.Sprintf("%d", t.UnixNano()),
     })
   }

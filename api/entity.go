@@ -1,4 +1,4 @@
-package stf
+package api
 
 import (
   "bytes"
@@ -9,23 +9,19 @@ import (
   "net/http"
   "strconv"
   "strings"
+  "github.com/stf-storage/go-stf-server"
+  "github.com/stf-storage/go-stf-server/data"
 )
 
 type Entity struct {
-  ObjectId uint64
-  StorageId uint64
-  Status    int
-}
-
-type EntityApi struct {
   *BaseApi
 }
 
-func NewEntityApi (ctx ContextWithApi) *EntityApi {
-  return &EntityApi { &BaseApi { ctx } }
+func NewEntity (ctx ContextWithApi) *Entity {
+  return &Entity { &BaseApi { ctx } }
 }
 
-func (self *EntityApi) Lookup(objectId uint64, storageId uint64) (*Entity, error) {
+func (self *Entity) Lookup(objectId uint64, storageId uint64) (*data.Entity, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Entity.Lookup]")
@@ -39,7 +35,7 @@ func (self *EntityApi) Lookup(objectId uint64, storageId uint64) (*Entity, error
     storageId,
   )
 
-  e := Entity { objectId, storageId, 0 }
+  e := data.Entity { objectId, storageId, 0 }
   err = row.Scan(&e.Status)
   if err != nil {
     ctx.Debugf(
@@ -55,15 +51,15 @@ func (self *EntityApi) Lookup(objectId uint64, storageId uint64) (*Entity, error
   return &e, nil
 }
 
-func (self *EntityApi) LookupFromRows(rows *sql.Rows) ([]*Entity, error) {
+func (self *Entity) LookupFromRows(rows *sql.Rows) ([]*data.Entity, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Entity.LookupFromRows]")
   defer closer()
 
-  var list []*Entity
+  var list []*data.Entity
   for rows.Next() {
-    e := &Entity{}
+    e := &data.Entity{}
     err := rows.Scan(&e.ObjectId, &e.StorageId, &e.Status)
     if err != nil {
       return nil, err
@@ -75,7 +71,7 @@ func (self *EntityApi) LookupFromRows(rows *sql.Rows) ([]*Entity, error) {
   return list, nil
 }
 
-func (self *EntityApi) LookupForObjectNotInCluster (objectId uint64, clusterId uint64) ([]*Entity, error) {
+func (self *Entity) LookupForObjectNotInCluster (objectId uint64, clusterId uint64) ([]*data.Entity, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Entity.LookupForObjectNotInCluster]")
@@ -111,7 +107,7 @@ SELECT e.object_id, e.storage_id, e.status
   return list, nil
 }
 
-func (self *EntityApi) LookupForObject (objectId uint64) ([]*Entity, error) {
+func (self *Entity) LookupForObject (objectId uint64) ([]*data.Entity, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Entity.LookupForObject]")
@@ -138,7 +134,7 @@ func (self *EntityApi) LookupForObject (objectId uint64) ([]*Entity, error) {
   return list, nil
 }
 
-func (self *EntityApi) Create (
+func (self *Entity) Create (
   objectId uint64,
   storageId uint64,
 ) error {
@@ -162,7 +158,7 @@ func (self *EntityApi) Create (
   return nil
 }
 
-func (self *EntityApi) FetchContent(o *Object, s *Storage, isRepair bool) (io.ReadCloser, error) {
+func (self *Entity) FetchContent(o *data.Object, s *data.Storage, isRepair bool) (io.ReadCloser, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Entity.FetchContent]")
@@ -181,9 +177,9 @@ func (self *EntityApi) FetchContent(o *Object, s *Storage, isRepair bool) (io.Re
   return self.FetchContentNocheck(o, s, isRepair)
 }
 
-func (self *EntityApi) FetchContentNocheck (
-  o *Object,
-  s *Storage,
+func (self *Entity) FetchContentNocheck (
+  o *data.Object,
+  s *data.Storage,
   isRepair bool,
 ) (io.ReadCloser, error) {
 
@@ -248,7 +244,7 @@ func (self *EntityApi) FetchContentNocheck (
   return resp.Body, nil
 }
 
-func (self *EntityApi) FetchContentFromStorageIds(o *Object, list []uint64, isRepair bool) (io.ReadCloser, error) {
+func (self *Entity) FetchContentFromStorageIds(o *data.Object, list []uint64, isRepair bool) (io.ReadCloser, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Entity.FetchContentFromStorageIds]")
@@ -270,7 +266,7 @@ func (self *EntityApi) FetchContentFromStorageIds(o *Object, list []uint64, isRe
   return nil, errors.New("Failed to fetch any content")
 }
 
-func (self *EntityApi) FetchContentFromAll (o *Object, isRepair bool) (io.ReadCloser, error) {
+func (self *Entity) FetchContentFromAll (o *data.Object, isRepair bool) (io.ReadCloser, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Entity.FetchContentFromAll]")
@@ -298,7 +294,7 @@ func (self *EntityApi) FetchContentFromAll (o *Object, isRepair bool) (io.ReadCl
   return self.FetchContentFromStorageIds(o, list, isRepair)
 }
 
-func (self *EntityApi) FetchContentFromAny (o *Object, isRepair bool) (io.ReadCloser, error) {
+func (self *Entity) FetchContentFromAny (o *data.Object, isRepair bool) (io.ReadCloser, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Entity.FetchContentFromAny]")
@@ -316,7 +312,7 @@ SELECT s.id
     return nil, err
   }
 
-  rows, err := tx.Query(sql, STORAGE_MODE_READ_ONLY, STORAGE_MODE_READ_WRITE, o.Id)
+  rows, err := tx.Query(sql, stf.STORAGE_MODE_READ_ONLY, stf.STORAGE_MODE_READ_WRITE, o.Id)
   if err != nil {
     return nil, err
   }
@@ -335,9 +331,9 @@ SELECT s.id
   return self.FetchContentFromStorageIds(o, list, isRepair)
 }
 
-func (self *EntityApi) Store(
-  storageObj  *Storage,
-  objectObj   *Object,
+func (self *Entity) Store(
+  storageObj  *data.Storage,
+  objectObj   *data.Object,
   input       *bytes.Reader,
 ) error {
   ctx := self.Ctx()
@@ -390,7 +386,7 @@ func (self *EntityApi) Store(
 }
 
 // Proceed with caution!!!! THIS WILL DELETE THE ENTIRE ENTITY SET!
-func (self *EntityApi) DeleteOrphansForObjectId(objectId uint64) error {
+func (self *Entity) DeleteOrphansForObjectId(objectId uint64) error {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Entity.DeletedOrphasForObjectId]")
@@ -405,7 +401,7 @@ func (self *EntityApi) DeleteOrphansForObjectId(objectId uint64) error {
   return err
 }
 
-func (self *EntityApi) RemoveForDeletedObjectId(objectId uint64) error {
+func (self *Entity) RemoveForDeletedObjectId(objectId uint64) error {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[EntityRemoveForDeletedObjectId]")
@@ -426,7 +422,7 @@ func (self *EntityApi) RemoveForDeletedObjectId(objectId uint64) error {
   return nil
 }
 
-func (self *EntityApi) CheckHealth(o *Object, s *Storage, isRepair bool) error {
+func (self *Entity) CheckHealth(o *data.Object, s *data.Storage, isRepair bool) error {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Entity.CheckHealth]")
@@ -450,7 +446,7 @@ func (self *EntityApi) CheckHealth(o *Object, s *Storage, isRepair bool) error {
   }
 
   // An entity in TEMPORARILY_DOWN node needs to be treated as alive
-  if s.Mode == STORAGE_MODE_TEMPORARILY_DOWN {
+  if s.Mode == stf.STORAGE_MODE_TEMPORARILY_DOWN {
     ctx.Debugf(
       "Storage %d is temporarily down. Assuming this is intact.",
       s.Id,
@@ -529,7 +525,7 @@ func (self *EntityApi) CheckHealth(o *Object, s *Storage, isRepair bool) error {
   return nil
 }
 
-func (self *EntityApi) SetStatus(e *Entity, st int) error {
+func (self *Entity) SetStatus(e *data.Entity, st int) error {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Entity.SetStatus]")
@@ -566,7 +562,7 @@ func (self *EntityApi) SetStatus(e *Entity, st int) error {
   return nil
 }
 
-func (self *EntityApi) Delete (objectId uint64, storageId uint64) error {
+func (self *Entity) Delete (objectId uint64, storageId uint64) error {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Entity.Delete]")
@@ -602,7 +598,7 @@ func (self *EntityApi) Delete (objectId uint64, storageId uint64) error {
   return nil
 }
 
-func (self *EntityApi) Remove (e *Entity, isRepair bool) error {
+func (self *Entity) Remove (e *data.Entity, isRepair bool) error {
   return self.removeInternal(
     e,
     isRepair,
@@ -610,7 +606,7 @@ func (self *EntityApi) Remove (e *Entity, isRepair bool) error {
   )
 }
 
-func (self *EntityApi) RemoveDeleted (e *Entity, isRepair bool) error {
+func (self *Entity) RemoveDeleted (e *data.Entity, isRepair bool) error {
   return self.removeInternal(
     e,
     isRepair,
@@ -618,7 +614,7 @@ func (self *EntityApi) RemoveDeleted (e *Entity, isRepair bool) error {
   )
 }
 
-func (self *EntityApi) removeInternal(e *Entity, isRepair bool, useDeletedObject bool) error {
+func (self *Entity) removeInternal(e *data.Entity, isRepair bool, useDeletedObject bool) error {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Entity.Remove]")

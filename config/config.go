@@ -1,4 +1,4 @@
-package stf
+package config
 
 import(
   "errors"

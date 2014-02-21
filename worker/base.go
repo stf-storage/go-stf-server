@@ -7,6 +7,8 @@ import (
   "path"
   "sync"
   "github.com/stf-storage/go-stf-server"
+  "github.com/stf-storage/go-stf-server/api"
+  "github.com/stf-storage/go-stf-server/config"
 )
 
 type Fetcher interface {
@@ -18,8 +20,8 @@ type Worker interface {
   Name()          string
   Loop()          bool
   ActiveSlaves()  int
-  Ctx()           *stf.Context
-  SendJob(*stf.WorkerArg)
+  Ctx()           *api.Context
+  SendJob(*api.WorkerArg)
 }
 
 type BaseWorker struct {
@@ -27,12 +29,12 @@ type BaseWorker struct {
   loop          bool
   activeSlaves  int
   maxSlaves     int
-  ctx           *stf.Context
+  ctx           *api.Context
   waiter        *sync.WaitGroup
   fetcher       Fetcher
   CmdChan       chan WorkerCmd
-  jobChan       chan *stf.WorkerArg
-  WorkCb        func(*stf.WorkerArg) error
+  jobChan       chan *api.WorkerArg
+  WorkCb        func(*api.WorkerArg) error
 }
 
 type WorkerCmd int
@@ -56,7 +58,7 @@ func NewBaseWorker(name string, f Fetcher) (*BaseWorker) {
     &sync.WaitGroup {},
     f,
     make(chan WorkerCmd, 16),
-    make(chan *stf.WorkerArg, 16),
+    make(chan *api.WorkerArg, 16),
     nil,
   }
 }
@@ -84,13 +86,13 @@ func (w *BaseWorker) Run() {
 
   os.Setenv("STF_CONFIG", configFile)
 
-  config, err := stf.BootstrapConfig()
+  cfg, err := config.BootstrapConfig()
   if err != nil {
     stf.Debugf("Failed to load config: %s", err)
     return
   }
 
-  w.ctx = stf.NewContext(config)
+  w.ctx = api.NewContext(cfg)
 
   w.SendCmd(CmdWorkerSlaveSpawn)
 
@@ -110,7 +112,7 @@ func (w *BaseWorker) Name() string {
   return w.name
 }
 
-func (w *BaseWorker) Ctx() *stf.Context {
+func (w *BaseWorker) Ctx() *api.Context {
   return w.ctx
 }
 
@@ -118,7 +120,7 @@ func (w *BaseWorker) ActiveSlaves() int {
   return w.activeSlaves
 }
 
-func (w *BaseWorker) SendJob(job *stf.WorkerArg) {
+func (w *BaseWorker) SendJob(job *api.WorkerArg) {
   if ! w.Loop() {
     return
   }

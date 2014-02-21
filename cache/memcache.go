@@ -1,4 +1,4 @@
-package stf
+package cache
 
 import (
   "crypto/md5"
@@ -9,6 +9,7 @@ import (
   "strings"
   "github.com/bradfitz/gomemcache/memcache"
   "github.com/vmihailenco/msgpack"
+  "github.com/stf-storage/go-stf-server"
 )
 
 type MemdClient struct {
@@ -30,7 +31,7 @@ func NewMemdClient(args ...string) *MemdClient {
 
 func (self *MemdClient) CacheKey (args ...string) string {
   // Prepend with our custom namespace
-  parts := append([]string { "go-stf", fmt.Sprintf("version(%s)", VERSION) }, args...)
+  parts := append([]string { "go-stf", fmt.Sprintf("version(%s)", stf.VERSION) }, args...)
   key := strings.Join(parts, ".")
   // Encode keys that are too long
   if len(key) > 250 {

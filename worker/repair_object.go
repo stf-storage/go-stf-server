@@ -2,6 +2,7 @@ package worker
 
 import (
   "github.com/stf-storage/go-stf-server"
+  "github.com/stf-storage/go-stf-server/api"
   "strconv"
 )
 
@@ -16,7 +17,7 @@ func NewRepairObjectWorker() (*RepairObjectWorker) {
   return w
 }
 
-func (self *RepairObjectWorker) Work(arg *stf.WorkerArg) (err error) {
+func (self *RepairObjectWorker) Work(arg *api.WorkerArg) (err error) {
   objectId, err := strconv.ParseUint(arg.Arg, 10, 64)
   if err != nil {
     return

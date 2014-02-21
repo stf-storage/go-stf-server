@@ -1,24 +1,20 @@
-package stf
+package api
 
 import (
   "errors"
   "strconv"
+  "github.com/stf-storage/go-stf-server/data"
 )
 
 type Bucket struct {
-  Name          string
-  StfObject
-}
-
-type BucketApi struct {
   *BaseApi
 }
 
-func NewBucketApi(ctx ContextWithApi) (*BucketApi) {
-  return &BucketApi { &BaseApi { ctx } }
+func NewBucket(ctx ContextWithApi) (*Bucket) {
+  return &Bucket { &BaseApi { ctx } }
 }
 
-func (self *BucketApi) LookupIdByName(name string) (uint64, error) {
+func (self *Bucket) LookupIdByName(name string) (uint64, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Bucket.LookupIdByName]")
@@ -43,16 +39,16 @@ func (self *BucketApi) LookupIdByName(name string) (uint64, error) {
   return id, nil
 }
 
-func (self *BucketApi) LookupFromDB(
+func (self *Bucket) LookupFromDB(
   id uint64,
-) (*Bucket, error) {
+) (*data.Bucket, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Bucket.LookupFromDB]")
   defer closer()
 
 
-  var b Bucket
+  var b data.Bucket
   tx, err := ctx.Txn()
   if err != nil {
     return nil, err
@@ -67,12 +63,12 @@ func (self *BucketApi) LookupFromDB(
   return &b, nil
 }
 
-func (self *BucketApi) Lookup(id uint64) (*Bucket, error) {
+func (self *Bucket) Lookup(id uint64) (*data.Bucket, error) {
   ctx := self.Ctx()
   closer := ctx.LogMark("[Bucket.Lookup]")
   defer closer()
 
-  var b Bucket
+  var b data.Bucket
   cache := ctx.Cache()
   cacheKey := cache.CacheKey("bucket", strconv.FormatUint(id, 10))
   err := cache.Get(cacheKey, &b)
@@ -94,7 +90,7 @@ func (self *BucketApi) Lookup(id uint64) (*Bucket, error) {
   return bptr, nil;
 }
 
-func (self *BucketApi) Create(id uint64, name string) error {
+func (self *Bucket) Create(id uint64, name string) error {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Bucket.Create]")
@@ -120,7 +116,7 @@ func (self *BucketApi) Create(id uint64, name string) error {
   return nil
 }
 
-func (self *BucketApi) MarkForDelete(id uint64) error {
+func (self *Bucket) MarkForDelete(id uint64) error {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Bucket.MarkForDelete]")
@@ -163,7 +159,7 @@ func (self *BucketApi) MarkForDelete(id uint64) error {
   return nil
 }
 
-func (self *BucketApi) DeleteObjects(id uint64) error {
+func (self *Bucket) DeleteObjects(id uint64) error {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Bucket.LookupIdByName]")
@@ -203,7 +199,7 @@ func (self *BucketApi) DeleteObjects(id uint64) error {
   return nil
 }
 
-func (self *BucketApi) Delete(id uint64, recursive bool) error {
+func (self *Bucket) Delete(id uint64, recursive bool) error {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Bucket.Delete]")

@@ -11,11 +11,14 @@ import (
   "syscall"
   "time"
   "github.com/stf-storage/go-stf-server"
+  "github.com/stf-storage/go-stf-server/api"
+  "github.com/stf-storage/go-stf-server/cache"
+  "github.com/stf-storage/go-stf-server/config"
 )
 
 type Drone struct {
   id      string
-  ctx     *stf.Context
+  ctx     *api.Context
   loop    bool
   leader  bool
   tasks   []*PeriodicTask
@@ -61,7 +64,7 @@ func (c DroneCmd) ToString() string {
   }
 }
 
-func NewDrone(config *stf.Config) (*Drone) {
+func NewDrone(config *config.Config) (*Drone) {
   host, err := os.Hostname()
   if err != nil {
     log.Fatalf("Failed to get hostname: %s", err)
@@ -70,7 +73,7 @@ func NewDrone(config *stf.Config) (*Drone) {
   id := fmt.Sprintf("%s.%d.%d", host, pid, rand.Int31())
   return &Drone {
     id: id,
-    ctx: stf.NewContext(config),
+    ctx: api.NewContext(config),
     loop: true,
     leader: false,
     tasks: nil,
@@ -298,7 +301,7 @@ func (d *Drone) Announce() error {
   )
 
   mc := d.ctx.Cache()
-  mc.Set("go-stf.worker.election", &stf.Int64Value { time.Now().Unix() }, 0)
+  mc.Set("go-stf.worker.election", &cache.Int64Value { time.Now().Unix() }, 0)
 
   return nil
 }
@@ -337,7 +340,7 @@ func (d *Drone) Unregister() error {
   db.Exec(`DELETE FROM worker_instances WHERE drone_id = ?`, d.id)
 
   mc := d.ctx.Cache()
-  mc.Set("go-stf.worker.election", &stf.Int64Value { time.Now().Unix() }, 0)
+  mc.Set("go-stf.worker.election", &cache.Int64Value { time.Now().Unix() }, 0)
 
   return nil
 }
@@ -354,7 +357,7 @@ func (d *Drone) CheckState() {
     return
   }
 
-  var v stf.Int64Value
+  var v cache.Int64Value
   mc := d.ctx.Cache()
   err := mc.Get("go-stf.worker.election", &v)
   if err != nil {

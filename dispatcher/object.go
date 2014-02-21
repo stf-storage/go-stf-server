@@ -7,7 +7,7 @@ import (
   "math/rand"
   "regexp"
   "strconv"
-  "github.com/stf-storage/go-stf-server"
+  "github.com/stf-storage/go-stf-server/api"
 )
 
 func (self *Dispatcher) FetchObject(ctx DispatcherContextWithApi, bucketName string, objectName string) *HTTPResponse {
@@ -62,7 +62,7 @@ func (self *Dispatcher) FetchObject(ctx DispatcherContextWithApi, bucketName str
   switch {
   case uri == "":
     return HTTPNotFound
-  case err == stf.ErrContentNotModified:
+  case err == api.ErrContentNotModified:
     // Special case
     return HTTPNotModified
   case err != nil:
@@ -81,7 +81,7 @@ func (self *Dispatcher) FetchObject(ctx DispatcherContextWithApi, bucketName str
   return response
 }
 
-func (self *Dispatcher) DeleteObject (ctx stf.ContextWithApi, bucketName string, objectName string) *HTTPResponse {
+func (self *Dispatcher) DeleteObject (ctx api.ContextWithApi, bucketName string, objectName string) *HTTPResponse {
   rollback, err := ctx.TxnBegin()
   if err != nil {
     ctx.Debugf("Failed to start transaction: %s", err)
@@ -233,13 +233,13 @@ func (self *Dispatcher) CreateObject (ctx DispatcherContextWithApi, bucketName s
   return HTTPCreated
 }
 
-func (self *Dispatcher) ModifyObject (ctx stf.ContextWithApi, bucketName string, objectName string) *HTTPResponse {
+func (self *Dispatcher) ModifyObject (ctx api.ContextWithApi, bucketName string, objectName string) *HTTPResponse {
   return nil
 }
 
 // MOVE /bucket_name
 // X-STF-Move-Destination: /new_name
-func (self *Dispatcher) RenameObject(ctx stf.ContextWithApi, bucketName string, objectName string, dest string) *HTTPResponse {
+func (self *Dispatcher) RenameObject(ctx api.ContextWithApi, bucketName string, objectName string, dest string) *HTTPResponse {
   return nil
 }
 

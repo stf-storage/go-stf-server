@@ -1,4 +1,8 @@
-package stf
+package api
+
+import (
+  "github.com/stf-storage/go-stf-server/config"
+)
 
 type WorkerArg struct {
   Arg string
@@ -6,7 +10,7 @@ type WorkerArg struct {
 }
 
 type ContextForQueueApi interface {
-  Config() *Config
+  Config() *config.Config
 }
 
 type QueueApiInterface interface {
@@ -15,7 +19,6 @@ type QueueApiInterface interface {
 }
 
 type BaseQueueApi struct {
-  currentQueue int
   ctx ContextForQueueApi
 }
 

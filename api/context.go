@@ -1,4 +1,4 @@
-package stf
+package api
 
 import (
   "database/sql"
@@ -8,19 +8,11 @@ import (
   "os"
   "strconv"
   "strings"
+  "github.com/stf-storage/go-stf-server"
+  "github.com/stf-storage/go-stf-server/cache"
+  "github.com/stf-storage/go-stf-server/config"
   _ "github.com/go-sql-driver/mysql"
 )
-
-type ApiHolder interface {
-  BucketApi()   *BucketApi
-  DeletedObjectApi()  *DeletedObjectApi
-  EntityApi()   *EntityApi
-  ObjectApi()   *ObjectApi
-  QueueApi()    QueueApiInterface
-  StorageApi()  *StorageApi
-  StorageClusterApi() *StorageClusterApi
-}
-
 
 type TxnManager interface {
   TxnBegin() (func(), error)
@@ -29,7 +21,8 @@ type TxnManager interface {
 }
 
 type ContextWithApi interface {
-  Cache() *MemdClient
+  Config() *config.Config
+  Cache() *cache.MemdClient
   Txn() (*sql.Tx, error)
   LogMark(string, ...interface {}) func()
   Debugf(string, ...interface {})
@@ -38,30 +31,30 @@ type ContextWithApi interface {
 }
 
 type Context struct {
-  debug          *DebugLog
+  debug          *stf.DebugLog
   HomeStr         string
-  bucketapi       *BucketApi
-  config          *Config
-  deletedobjectapi *DeletedObjectApi
-  entityapi       *EntityApi
-  objectapi       *ObjectApi
+  bucketapi       *Bucket
+  config          *config.Config
+  deletedobjectapi *DeletedObject
+  entityapi       *Entity
+  objectapi       *Object
   queueapi        QueueApiInterface
-  storageapi      *StorageApi
-  storageclusterapi *StorageClusterApi
-  cache           *MemdClient
-  maindb          *DB
+  storageapi      *Storage
+  storageclusterapi *StorageCluster
+  cache           *cache.MemdClient
+  maindb          *stf.DB
   tx              *sql.Tx
 }
 
 func (self *Context) Home() string { return self.HomeStr }
-func (ctx *Context) LoadConfig() (*Config, error) {
-  return LoadConfig(ctx.Home())
+func (ctx *Context) LoadConfig() (*config.Config, error) {
+  return config.LoadConfig(ctx.Home())
 }
 
-func NewContext(config *Config) *Context {
+func NewContext(config *config.Config) *Context {
   return &Context{
     config: config,
-    debug:  NewDebugLog(),
+    debug:  stf.NewDebugLog(),
   }
 }
 
@@ -70,17 +63,17 @@ func (self *Context) NewScope() (*ScopedContext, error) {
 }
 
 type ScopedContext struct {
-  config  *Config
+  config  *config.Config
   tx      *sql.Tx
-  maindb  *DB
+  maindb  *stf.DB
 }
 
-func (self *Context) MainDB() (*DB, error) {
+func (self *Context) MainDB() (*stf.DB, error) {
   if db := self.maindb; db != nil {
     return db, nil
   }
 
-  db, err := ConnectDB(&self.Config().MainDB)
+  db, err := stf.ConnectDB(&self.Config().MainDB)
   if err != nil {
     return nil, err
   }
@@ -89,12 +82,12 @@ func (self *Context) MainDB() (*DB, error) {
   return db, nil
 }
 
-func (self *Context) Config() *Config {
+func (self *Context) Config() *config.Config {
   return self.config
 }
 
 func (self *ScopedContext) EndScope() {}
-func NewScopedContext(config *Config) (*ScopedContext, error) {
+func NewScopedContext(config *config.Config) (*ScopedContext, error) {
   return &ScopedContext{
     config,
     nil,
@@ -177,7 +170,7 @@ func BootstrapContext() (*Context, error) {
 
   if cfg.Global.Debug {
     log.SetOutput(dbgOutput)
-    ctx.debug = NewDebugLog()
+    ctx.debug = stf.NewDebugLog()
     ctx.debug.Prefix = "GLOBAL"
     ctx.debug.Printf("Starting debug log")
   }
@@ -191,43 +184,43 @@ func (self *Context) Debugf (format string, args ...interface {}) {
   }
 }
 
-func (self *Context) Cache() *MemdClient {
+func (self *Context) Cache() *cache.MemdClient {
   if self.cache == nil {
     config := self.Config()
-    self.cache = NewMemdClient(config.Memcached.Servers...)
+    self.cache = cache.NewMemdClient(config.Memcached.Servers...)
   }
   return self.cache
 }
 
-func (ctx *Context) BucketApi() *BucketApi {
+func (ctx *Context) BucketApi() *Bucket {
   if b := ctx.bucketapi; b != nil {
     return b
   }
-  ctx.bucketapi = NewBucketApi(ctx)
+  ctx.bucketapi = NewBucket(ctx)
   return ctx.bucketapi
 }
 
-func (ctx *Context) DeletedObjectApi() *DeletedObjectApi {
+func (ctx *Context) DeletedObjectApi() *DeletedObject {
   if b := ctx.deletedobjectapi; b != nil {
     return b
   }
-  ctx.deletedobjectapi = NewDeletedObjectApi(ctx)
+  ctx.deletedobjectapi = NewDeletedObject(ctx)
   return ctx.deletedobjectapi
 }
 
-func (ctx *Context) EntityApi() *EntityApi {
+func (ctx *Context) EntityApi() *Entity {
   if b := ctx.entityapi; b != nil {
     return b
   }
-  ctx.entityapi = NewEntityApi(ctx)
+  ctx.entityapi = NewEntity(ctx)
   return ctx.entityapi
 }
 
-func (ctx *Context) ObjectApi() *ObjectApi {
+func (ctx *Context) ObjectApi() *Object {
   if b := ctx.objectapi; b != nil {
     return b
   }
-  ctx.objectapi = NewObjectApi(ctx)
+  ctx.objectapi = NewObject(ctx)
   return ctx.objectapi
 }
 
@@ -235,23 +228,23 @@ func (ctx *Context) QueueApi() QueueApiInterface {
   if b := ctx.queueapi; b != nil {
     return b
   }
-  ctx.queueapi = NewQueueApi(ctx)
+  ctx.queueapi = NewQueue(ctx)
   return ctx.queueapi
 }
 
-func (ctx *Context) StorageApi() *StorageApi {
+func (ctx *Context) StorageApi() *Storage {
   if b := ctx.storageapi; b != nil {
     return b
   }
-  ctx.storageapi = NewStorageApi(ctx)
+  ctx.storageapi = NewStorage(ctx)
   return ctx.storageapi
 }
 
-func (ctx *Context) StorageClusterApi() *StorageClusterApi {
+func (ctx *Context) StorageClusterApi() *StorageCluster {
   if b := ctx.storageclusterapi; b != nil {
     return b
   }
-  ctx.storageclusterapi = NewStorageClusterApi(ctx)
+  ctx.storageclusterapi = NewStorageCluster(ctx)
   return ctx.storageclusterapi
 }
 

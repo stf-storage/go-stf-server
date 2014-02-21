@@ -5,7 +5,7 @@ import (
   "log"
   "os"
   "path"
-  "github.com/stf-storage/go-stf-server"
+  "github.com/stf-storage/go-stf-server/config"
   "github.com/stf-storage/go-stf-server/dispatcher"
 )
 
@@ -42,7 +42,7 @@ func main() {
   flag.Parse()
 
   os.Setenv("STF_CONFIG", configFile)
-  config, err := stf.BootstrapConfig()
+  config, err := config.BootstrapConfig()
   if err != nil {
     log.Fatal(err)
   }

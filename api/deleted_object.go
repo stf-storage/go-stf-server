@@ -1,17 +1,20 @@
-package stf
+package api
 
-type DeletedObject Object
+import (
+  "github.com/stf-storage/go-stf-server"
+  "github.com/stf-storage/go-stf-server/data"
+)
 
-type DeletedObjectApi struct {
+type DeletedObject struct {
   *BaseApi
 }
 
-func NewDeletedObjectApi (ctx ContextWithApi) *DeletedObjectApi {
-  return &DeletedObjectApi { &BaseApi { ctx } }
+func NewDeletedObject (ctx ContextWithApi) *DeletedObject {
+  return &DeletedObject { &BaseApi { ctx } }
 }
 
 // No caching
-func (self *DeletedObjectApi) Lookup(id uint64) (*DeletedObject, error) {
+func (self *DeletedObject) Lookup(id uint64) (*data.DeletedObject, error) {
   ctx := self.Ctx()
 
   tx, err := ctx.Txn()
@@ -21,7 +24,7 @@ func (self *DeletedObjectApi) Lookup(id uint64) (*DeletedObject, error) {
 
   row := tx.QueryRow("SELECT id, bucket_id, name, internal_name, size, status, created_at, updated_at  FROM deleted_object WHERE id = ?", id)
 
-  var o DeletedObject
+  var o data.DeletedObject
   err = row.Scan(
     &o.Id,
     &o.BucketId,
@@ -34,7 +37,7 @@ func (self *DeletedObjectApi) Lookup(id uint64) (*DeletedObject, error) {
   )
 
   if err != nil {
-    Debugf("Failed to execute query (Lookup): %s", err)
+    stf.Debugf("Failed to execute query (Lookup): %s", err)
     return nil, err
   }
 

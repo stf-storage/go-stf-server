@@ -1,27 +1,22 @@
-package stf
+package api
 
 import (
   "fmt"
   "strconv"
   "strings"
+  "github.com/stf-storage/go-stf-server"
+  "github.com/stf-storage/go-stf-server/data"
 )
 
 type Storage struct {
-  ClusterId     uint64
-  Uri           string
-  Mode          int
-  StfObject
-}
-
-type StorageApi struct {
   *BaseApi
 }
 
-func NewStorageApi (ctx ContextWithApi) *StorageApi {
-  return &StorageApi { &BaseApi { ctx } }
+func NewStorage (ctx ContextWithApi) *Storage {
+  return &Storage { &BaseApi { ctx } }
 }
 
-func (self *StorageApi) LookupFromDB(id uint64) (*Storage, error) {
+func (self *Storage) LookupFromDB(id uint64) (*data.Storage, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Storage.LookupFromDB]")
@@ -33,7 +28,7 @@ func (self *StorageApi) LookupFromDB(id uint64) (*Storage, error) {
   }
   row := tx.QueryRow("SELECT id, cluster_id, uri, mode, created_at, updated_at FROM storage WHERE id = ?", id)
 
-  var s Storage
+  var s data.Storage
   err = row.Scan(
     &s.Id,
     &s.ClusterId,
@@ -53,13 +48,13 @@ func (self *StorageApi) LookupFromDB(id uint64) (*Storage, error) {
   return &s, nil
 }
 
-func (self *StorageApi) Lookup(id uint64) (*Storage, error) {
+func (self *Storage) Lookup(id uint64) (*data.Storage, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Storage.StorageLookup]")
   defer closer()
 
-  var s Storage
+  var s data.Storage
   cache := ctx.Cache()
   cacheKey := cache.CacheKey("storage", strconv.FormatUint(uint64(id), 10))
   err := cache.Get(cacheKey, &s)
@@ -79,7 +74,7 @@ func (self *StorageApi) Lookup(id uint64) (*Storage, error) {
   return sptr, nil
 }
 
-func (self *StorageApi) LookupFromSql(sql string, binds []interface {}) ([]*Storage, error) {
+func (self *Storage) LookupFromSql(sql string, binds []interface {}) ([]*data.Storage, error) {
   ctx := self.Ctx()
 
   tx, err := ctx.Txn()
@@ -105,7 +100,7 @@ func (self *StorageApi) LookupFromSql(sql string, binds []interface {}) ([]*Stor
   return self.LookupMulti(ids)
 }
 
-func (self *StorageApi) LookupMulti(ids []uint64) ([]*Storage, error) {
+func (self *Storage) LookupMulti(ids []uint64) ([]*data.Storage, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Storage.LookupMulti]")
@@ -126,13 +121,13 @@ func (self *StorageApi) LookupMulti(ids []uint64) ([]*Storage, error) {
     return nil, err
   }
 
-  var ret []*Storage
+  var ret []*data.Storage
   misses := 0
   for _, id := range ids {
     key  := cache.CacheKey("storage", strconv.FormatUint(id, 10))
-    st, ok := cached[key].(*Storage)
+    st, ok := cached[key].(*data.Storage)
 
-    var s *Storage
+    var s *data.Storage
     if ok {
       s = st
     } else {
@@ -150,7 +145,7 @@ func (self *StorageApi) LookupMulti(ids []uint64) ([]*Storage, error) {
   return ret, nil
 }
 
-func (self *StorageApi) LoadInCluster(clusterId uint64) ([]*Storage, error) {
+func (self *Storage) LoadInCluster(clusterId uint64) ([]*data.Storage, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Storage.LoadInCluster]")
@@ -167,27 +162,27 @@ func (self *StorageApi) LoadInCluster(clusterId uint64) ([]*Storage, error) {
   return list, nil
 }
 
-func (self *StorageApi) ReadableModes(isRepair bool) []int {
+func (self *Storage) ReadableModes(isRepair bool) []int {
   var modes []int
   if isRepair {
-    modes = READABLE_MODES_ON_REPAIR
+    modes = stf.READABLE_MODES_ON_REPAIR
   } else {
-    modes = READABLE_MODES
+    modes = stf.READABLE_MODES
   }
   return modes
 }
 
-func (self *StorageApi) WritableModes(isRepair bool) []int {
+func (self *Storage) WritableModes(isRepair bool) []int {
   var modes []int
   if isRepair {
-    modes = WRITABLE_MODES_ON_REPAIR
+    modes = stf.WRITABLE_MODES_ON_REPAIR
   } else {
-    modes = WRITABLE_MODES
+    modes = stf.WRITABLE_MODES
   }
   return modes
 }
 
-func IsModeIn(s *Storage, modes []int) bool {
+func IsModeIn(s *data.Storage, modes []int) bool {
   for _, mode := range modes {
     if s.Mode == mode {
       return true
@@ -196,15 +191,15 @@ func IsModeIn(s *Storage, modes []int) bool {
   return false
 }
 
-func (self *StorageApi) IsReadable(s *Storage, isRepair bool) bool {
+func (self *Storage) IsReadable(s *data.Storage, isRepair bool) bool {
   return IsModeIn(s, self.ReadableModes(isRepair))
 }
 
-func (self *StorageApi) IsWritable(s *Storage, isRepair bool) bool {
+func (self *Storage) IsWritable(s *data.Storage, isRepair bool) bool {
   return IsModeIn(s, self.WritableModes(isRepair))
 }
 
-func (self *StorageApi) LoadWritable(clusterId uint64, isRepair bool) ([]*Storage, error) {
+func (self *Storage) LoadWritable(clusterId uint64, isRepair bool) ([]*data.Storage, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Storage.LoadWritable]")

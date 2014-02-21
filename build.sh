@@ -9,6 +9,12 @@ if [ -z "$STF_QUEUE_TYPE" ]; then
   STF_QUEUE_TYPE=q4m
 fi
 
+if [ -z "$CC" ]; then
+  if [ -x "/usr/local/bin/gcc-4.7" ]; then
+    export CC=/usr/local/bin/gcc-4.7
+  fi
+fi
+
 export GOPATH
 
 if [ -z "$SKIP_DEPS" ]; then

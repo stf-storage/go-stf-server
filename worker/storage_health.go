@@ -4,12 +4,14 @@ package worker
 import (
   "errors"
   "fmt"
-  "github.com/stf-storage/go-stf-server"
   "log"
   "net/http"
   "strconv"
   "strings"
   "time"
+  "github.com/stf-storage/go-stf-server"
+  "github.com/stf-storage/go-stf-server/api"
+  "github.com/stf-storage/go-stf-server/data"
 )
 
 type StorageHealthWorker struct {
@@ -24,7 +26,7 @@ func NewStorageHealthWorker() *StorageHealthWorker {
   return w
 }
 
-func (self *StorageHealthWorker) Work(arg *stf.WorkerArg) (err error) {
+func (self *StorageHealthWorker) Work(arg *api.WorkerArg) (err error) {
   ctx := self.ctx
   closer, err := ctx.TxnBegin()
   if err != nil {
@@ -43,9 +45,9 @@ func (self *StorageHealthWorker) Work(arg *stf.WorkerArg) (err error) {
     return
   }
 
-  var storages []*stf.Storage
+  var storages []*data.Storage
   for rows.Next() {
-    var s stf.Storage
+    var s data.Storage
 
     err = rows.Scan(&s.Id, &s.Uri)
     if err != nil {
@@ -78,7 +80,7 @@ GOING TO BRING DOWN THIS STORAGE!
   return
 }
 
-func (self *StorageHealthWorker) StorageIsAvailable(s *stf.Storage) (err error) {
+func (self *StorageHealthWorker) StorageIsAvailable(s *data.Storage) (err error) {
   uri     := strings.Join([]string{ s.Uri, "health.txt" }, "/")
   content := stf.GenerateRandomId(uri, 40)
   client  := &http.Client {}
@@ -141,7 +143,7 @@ func (self *StorageHealthWorker) StorageIsAvailable(s *stf.Storage) (err error) 
   return
 }
 
-func (self *StorageHealthWorker) MarkStorageDown(ctx *stf.Context, s *stf.Storage) (err error) {
+func (self *StorageHealthWorker) MarkStorageDown(ctx *api.Context, s *data.Storage) (err error) {
   db, err := ctx.MainDB()
   if err != nil {
     return

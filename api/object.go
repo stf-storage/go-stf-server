@@ -1,4 +1,4 @@
-package stf
+package api
 
 import (
   "bytes"
@@ -10,29 +10,22 @@ import (
   "net/http"
   "strconv"
   "strings"
+  "github.com/stf-storage/go-stf-server"
+  "github.com/stf-storage/go-stf-server/data"
   randbo "github.com/dustin/randbo"
 )
 
 type Object struct {
-  BucketId      uint64
-  Name          string
-  InternalName  string
-  Size          int64
-  Status        int
-  StfObject
-}
-
-type ObjectApi struct {
   *BaseApi
 }
 
 var ErrContentNotModified error = errors.New("Request Content Not Modified")
 
-func NewObjectApi (ctx ContextWithApi) *ObjectApi {
-  return &ObjectApi { &BaseApi { ctx } }
+func NewObject (ctx ContextWithApi) *Object {
+  return &Object { &BaseApi { ctx } }
 }
 
-func (self *ObjectApi) LookupIdByBucketAndPath(bucketObj *Bucket, path string) (uint64, error) {
+func (self *Object) LookupIdByBucketAndPath(bucketObj *data.Bucket, path string) (uint64, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Object.LookupIdByBucketAndPath]")
@@ -62,7 +55,7 @@ func (self *ObjectApi) LookupIdByBucketAndPath(bucketObj *Bucket, path string) (
   return id, nil
 }
 
-func (self *ObjectApi) LookupFromDB(id  uint64) (*Object, error) {
+func (self *Object) LookupFromDB(id  uint64) (*data.Object, error) {
   ctx := self.Ctx()
 
   tx, err := ctx.Txn()
@@ -72,7 +65,7 @@ func (self *ObjectApi) LookupFromDB(id  uint64) (*Object, error) {
 
   row := tx.QueryRow("SELECT id, bucket_id, name, internal_name, size, status, created_at, updated_at  FROM object WHERE id = ?", id)
 
-  var o Object
+  var o data.Object
   err = row.Scan(
     &o.Id,
     &o.BucketId,
@@ -92,13 +85,13 @@ func (self *ObjectApi) LookupFromDB(id  uint64) (*Object, error) {
   return &o, nil
 }
 
-func (self *ObjectApi) Lookup(id uint64) (*Object, error) {
+func (self *Object) Lookup(id uint64) (*data.Object, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Object.Lookup]")
   defer closer()
 
-  var o Object
+  var o data.Object
   cache := ctx.Cache()
   cacheKey := cache.CacheKey("object", strconv.FormatUint(id, 10))
   err := cache.Get(cacheKey, &o)
@@ -117,7 +110,7 @@ func (self *ObjectApi) Lookup(id uint64) (*Object, error) {
   return optr, nil
 }
 
-func (self *ObjectApi) GetStoragesFor(objectObj *Object) ([]*Storage, error) {
+func (self *Object) GetStoragesFor(objectObj *data.Object) ([]*data.Storage, error) {
   ctx := self.Ctx()
   closer := ctx.LogMark("[Object.GetStoragesFor]")
   defer closer()
@@ -131,7 +124,7 @@ func (self *ObjectApi) GetStoragesFor(objectObj *Object) ([]*Storage, error) {
     strconv.FormatUint(objectObj.Id, 10),
   )
   var storageIds []uint64
-  var list []*Storage
+  var list []*data.Storage
 
   err := cache.Get(cacheKey, &storageIds)
 
@@ -139,7 +132,7 @@ func (self *ObjectApi) GetStoragesFor(objectObj *Object) ([]*Storage, error) {
     // Cache HIT. we need to check for the validity of the storages
     list, err = ctx.StorageApi().LookupMulti(storageIds)
     if err != nil {
-      list = []*Storage {}
+      list = []*data.Storage {}
     } else {
       // Check each
     }
@@ -164,13 +157,13 @@ SELECT s.id, s.uri, s.mode
       return nil, err
     }
 
-    rows, err := tx.Query(sql, objectObj.Id, STORAGE_MODE_READ_ONLY, STORAGE_MODE_READ_WRITE)
+    rows, err := tx.Query(sql, objectObj.Id, stf.STORAGE_MODE_READ_ONLY, stf.STORAGE_MODE_READ_WRITE)
     if err != nil {
       return nil, err
     }
 
     for rows.Next() {
-      s := Storage {}
+      s := data.Storage {}
       err = rows.Scan(
         &s.Id,
         &s.Uri,
@@ -187,9 +180,9 @@ SELECT s.id, s.uri, s.mode
   return list, nil
 }
 
-func (self *ObjectApi) EnqueueRepair(
-  bucketObj *Bucket,
-  objectObj *Object,
+func (self *Object) EnqueueRepair(
+  bucketObj *data.Bucket,
+  objectObj *data.Object,
 ) {
   ctx := self.Ctx()
 
@@ -227,9 +220,9 @@ func (self *ObjectApi) EnqueueRepair(
   cache.Add(cacheKey, 1, 3600)
 }
 
-func (self *ObjectApi) GetAnyValidEntityUrl (
-  bucketObj *Bucket,
-  objectObj *Object,
+func (self *Object) GetAnyValidEntityUrl (
+  bucketObj *data.Bucket,
+  objectObj *data.Object,
   doHealthCheck bool, // true if we want to run repair
   ifModifiedSince string,
 ) (string, error) {
@@ -299,7 +292,7 @@ func (self *ObjectApi) GetAnyValidEntityUrl (
   return "", err
 }
 
-func (self *ObjectApi) MarkForDelete (id uint64) error {
+func (self *Object) MarkForDelete (id uint64) error {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Object.MarkForDelete]")
@@ -349,7 +342,7 @@ func (self *ObjectApi) MarkForDelete (id uint64) error {
   return nil
 }
 
-func (self *ObjectApi) Delete (id uint64) error {
+func (self *Object) Delete (id uint64) error {
   ctx := self.Ctx()
   tx, err := ctx.Txn()
   if err != nil {
@@ -371,7 +364,7 @@ func (self *ObjectApi) Delete (id uint64) error {
   return nil
 }
 
-func (self *ObjectApi) Create (
+func (self *Object) Create (
   objectId uint64,
   bucketId uint64,
   objectName string,
@@ -397,7 +390,7 @@ func (self *ObjectApi) Create (
   return nil
 }
 
-func (self *ObjectApi) AttemptCreate (
+func (self *Object) AttemptCreate (
   objectId uint64,
   bucketId uint64,
   objectName string,
@@ -441,9 +434,9 @@ func createInternalName (suffix string) string {
   )
 }
 
-func (self *ObjectApi) Store (
+func (self *Object) Store (
   objectId uint64,
-  bucketObj *Bucket,
+  bucketObj *data.Bucket,
   objectName string,
   size int64,
   input *bytes.Reader,
@@ -540,7 +533,7 @@ func (self *ObjectApi) Store (
 }
 
 var ErrNothingToRepair = errors.New("Nothing to repair")
-func (self *ObjectApi) Repair (objectId uint64) error {
+func (self *Object) Repair (objectId uint64) error {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Object.Repair]")
@@ -561,7 +554,7 @@ func (self *ObjectApi) Repair (objectId uint64) error {
       return ErrNothingToRepair
     }
 
-    if DebugEnabled() {
+    if stf.DebugEnabled() {
       ctx.Debugf("Removing orphaned entities in storages:")
       for _, e := range entities {
         ctx.Debugf(" + %d", e.StorageId)
@@ -606,7 +599,7 @@ func (self *ObjectApi) Repair (objectId uint64) error {
   // Keep this empty until successful completion of the next 
   // `if err == nil {...} else {...} block. It serves as a marker that
   // the object is stored in this cluster
-  var designatedCluster *StorageCluster
+  var designatedCluster *data.StorageCluster
 
   // The object SHOULD be stored in the first instance
   ctx.Debugf(

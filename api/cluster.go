@@ -1,4 +1,4 @@
-package stf
+package api
 
 import (
   "bytes"
@@ -9,40 +9,35 @@ import (
   "io/ioutil"
   "sort"
   "strconv"
+  "github.com/stf-storage/go-stf-server"
+  "github.com/stf-storage/go-stf-server/data"
 )
 
 type StorageCluster struct {
-  StfObject
-  Name      string
-  Mode      int
-  sortHint  uint32
-}
-
-type StorageClusterApi struct {
   *BaseApi
 }
 
-func NewStorageClusterApi (ctx ContextWithApi) *StorageClusterApi {
-  return &StorageClusterApi { &BaseApi { ctx } }
+func NewStorageCluster (ctx ContextWithApi) *StorageCluster {
+  return &StorageCluster { &BaseApi { ctx } }
 }
 
 // These are defined to allow sorting via the sort package
-type ClusterCandidates []*StorageCluster
+type ClusterCandidates []*data.StorageCluster
 
 func (self ClusterCandidates) Prepare(objectId uint64) {
   idStr := strconv.FormatUint(objectId, 10)
   for _, x := range self {
     key := strconv.FormatUint(uint64(x.Id), 10) + idStr
-    x.sortHint = MurmurHash([]byte(key))
+    x.SortHint = stf.MurmurHash([]byte(key))
   }
 }
 func (self ClusterCandidates) Len() int { return len(self) }
 func (self ClusterCandidates) Swap(i, j int) { self[i], self[j] = self[j], self[i] }
 func (self ClusterCandidates) Less(i, j int) bool {
-  return self[i].sortHint < self[j].sortHint
+  return self[i].SortHint < self[j].SortHint
 }
 
-func (self *StorageClusterApi) LoadWritable () (ClusterCandidates, error) {
+func (self *StorageCluster) LoadWritable () (ClusterCandidates, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[Cluster.LoadWritable]")
@@ -53,7 +48,7 @@ func (self *StorageClusterApi) LoadWritable () (ClusterCandidates, error) {
     return nil, err
   }
 
-  rows, err := tx.Query("SELECT id, name, mode FROM storage_cluster WHERE mode = ?", STORAGE_CLUSTER_MODE_READ_WRITE)
+  rows, err := tx.Query("SELECT id, name, mode FROM storage_cluster WHERE mode = ?", stf.STORAGE_CLUSTER_MODE_READ_WRITE)
 
   if err != nil {
     ctx.Debugf("Failed to execute query: %s", err)
@@ -62,7 +57,7 @@ func (self *StorageClusterApi) LoadWritable () (ClusterCandidates, error) {
 
   var list ClusterCandidates
   for rows.Next() {
-    s := &StorageCluster {}
+    s := &data.StorageCluster {}
     err = rows.Scan(&s.Id, &s.Name, &s.Mode)
     if err != nil {
       return nil, err
@@ -76,7 +71,7 @@ func (self *StorageClusterApi) LoadWritable () (ClusterCandidates, error) {
   return list, nil
 }
 
-func (self *StorageClusterApi) LookupFromDB(id uint64) (*StorageCluster, error) {
+func (self *StorageCluster) LookupFromDB(id uint64) (*data.StorageCluster, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[StorageCluster.LookupFromDB]")
@@ -89,7 +84,7 @@ func (self *StorageClusterApi) LookupFromDB(id uint64) (*StorageCluster, error) 
 
   row := tx.QueryRow("SELECT name, mode FROM storage_cluster WHERE id = ?", id)
 
-  c := StorageCluster { StfObject { Id: id }, "", 0, 0 }
+  c := data.StorageCluster { data.StfObject { Id: id }, "", 0, 0 }
   err = row.Scan(&c.Name, &c.Mode)
   if err != nil {
     ctx.Debugf("Failed to execute query (LookupFromDB): %s", err)
@@ -101,13 +96,13 @@ func (self *StorageClusterApi) LookupFromDB(id uint64) (*StorageCluster, error) 
   return &c, nil
 }
 
-func (self *StorageClusterApi) Lookup(id uint64) (*StorageCluster, error) {
+func (self *StorageCluster) Lookup(id uint64) (*data.StorageCluster, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[StorageCluster.Lookup]")
   defer closer()
 
-  var c StorageCluster
+  var c data.StorageCluster
   cache := ctx.Cache()
   cacheKey := cache.CacheKey("storage_cluster", strconv.FormatUint(id, 10))
   err := cache.Get(cacheKey, &c)
@@ -127,7 +122,7 @@ func (self *StorageClusterApi) Lookup(id uint64) (*StorageCluster, error) {
   return cptr, nil
 }
 
-func (self *StorageClusterApi) LookupForObject(objectId uint64) (*StorageCluster, error) {
+func (self *StorageCluster) LookupForObject(objectId uint64) (*data.StorageCluster, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[StorageCluster.LookupForObject]")
@@ -148,7 +143,7 @@ func (self *StorageClusterApi) LookupForObject(objectId uint64) (*StorageCluster
   return self.Lookup(cid)
 }
 
-func (self *StorageClusterApi) LoadCandidatesFor(objectId uint64) (ClusterCandidates, error) {
+func (self *StorageCluster) LoadCandidatesFor(objectId uint64) (ClusterCandidates, error) {
   ctx := self.Ctx()
 
   closer := ctx.LogMark("[StorageCluster.LoadCandidatesFor]")
@@ -180,9 +175,9 @@ func calcMD5 (input interface { Read([]byte) (int, error) } ) []byte {
   return h.Sum(nil)
 }
 
-func (self *StorageClusterApi) Store(
+func (self *StorageCluster) Store(
   clusterId uint64,
-  o *Object,
+  o *data.Object,
   input *bytes.Reader,
   minimumToStore int,
   isRepair bool,
@@ -297,15 +292,15 @@ func (self *StorageClusterApi) Store(
   return nil
 }
 
-func (self *StorageClusterApi) RegisterForObject(clusterId uint64, objectId uint64) error {
+func (self *StorageCluster) RegisterForObject(clusterId uint64, objectId uint64) error {
   return nil
 }
 
 var ErrClusterNotWritable = errors.New("Cluster is not writable")
 var ErrNoStorageAvailable = errors.New("No storages available")
-func (self *StorageClusterApi) CheckEntityHealth(
-  cluster   *StorageCluster,
-  o         *Object,
+func (self *StorageCluster) CheckEntityHealth(
+  cluster   *data.StorageCluster,
+  o         *data.Object,
   isRepair  bool,
 ) error {
   ctx := self.Ctx()
@@ -321,7 +316,7 @@ func (self *StorageClusterApi) CheckEntityHealth(
 
   // Short circuit. If the cluster mode is not rw or ro, then
   // we have a problem.
-  if cluster.Mode != STORAGE_CLUSTER_MODE_READ_WRITE && cluster.Mode != STORAGE_CLUSTER_MODE_READ_ONLY {
+  if cluster.Mode != stf.STORAGE_CLUSTER_MODE_READ_WRITE && cluster.Mode != stf.STORAGE_CLUSTER_MODE_READ_ONLY {
     ctx.Debugf(
       "Cluster %d is not read-write or read-only, need to move object %d out of this cluster",
       cluster.Id,

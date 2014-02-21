@@ -11,16 +11,17 @@ import (
   "runtime/debug"
   "strings"
   "github.com/braintree/manners"
-  "github.com/stf-storage/go-stf-server"
   "github.com/lestrrat/go-apache-logformat"
   "github.com/lestrrat/go-file-rotatelogs"
   "github.com/lestrrat/go-server-starter-listener"
+  "github.com/stf-storage/go-stf-server/api"
+  "github.com/stf-storage/go-stf-server/config"
 )
 
 type Dispatcher struct {
-  config          *stf.Config
+  config          *config.Config
   Address         string
-  Ctx             *stf.Context
+  Ctx             *api.Context
   ResponseWriter  *http.ResponseWriter
   Request         *http.Request
   logger          *apachelog.ApacheLog
@@ -28,13 +29,13 @@ type Dispatcher struct {
 }
 
 type DispatcherContext struct {
-  *stf.Context
+  *api.Context
   ResponseWriter  http.ResponseWriter
   request         *http.Request
 }
 
 type DispatcherContextWithApi interface {
-  stf.ContextWithApi
+  api.ContextWithApi
   Request() *http.Request
 }
 
@@ -47,7 +48,7 @@ func init () {
   }
 }
 
-func New(config *stf.Config) *Dispatcher {
+func New(config *config.Config) *Dispatcher {
   d := &Dispatcher {
     config: config,
     idgen: NewIdGenerator(config.Dispatcher.ServerId),
@@ -75,7 +76,7 @@ func (self *Dispatcher) IdGenerator() (*UUIDGen) {
 }
 
 func (self *Dispatcher) Start () {
-  ctx := stf.NewContext(self.config)
+  ctx := api.NewContext(self.config)
 
   // Work with Server::Stareter
   baseListener, err := ss.NewListenerOrDefault("tcp", self.config.Dispatcher.Listen)
@@ -96,7 +97,7 @@ func (self *Dispatcher) Start () {
 
 func (self *Dispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
   ctx := &DispatcherContext{
-    stf.NewContext(self.config),
+    api.NewContext(self.config),
     w,
     r,
   }

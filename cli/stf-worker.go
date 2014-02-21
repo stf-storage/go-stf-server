@@ -7,7 +7,7 @@ import (
   "path"
   "path/filepath"
   "strings"
-  "github.com/stf-storage/go-stf-server"
+  "github.com/stf-storage/go-stf-server/config"
   "github.com/stf-storage/go-stf-server/drone"
 )
 
@@ -31,7 +31,7 @@ func main() {
 
   os.Setenv("STF_CONFIG", configFile)
 
-  config, err := stf.BootstrapConfig()
+  config, err := config.BootstrapConfig()
   if err != nil {
     log.Fatalf("Could not load config: %s", err)
   }

@@ -3,7 +3,7 @@ package dispatcher
 import (
   "database/sql"
   "log"
-  "github.com/stf-storage/go-stf-server"
+  "github.com/stf-storage/go-stf-server/api"
 )
 
 func (self *Dispatcher) CreateBucket(ctx *DispatcherContext, bucketName string, objectName string) *HTTPResponse {
@@ -53,7 +53,7 @@ func (self *Dispatcher) CreateBucket(ctx *DispatcherContext, bucketName string, 
   return HTTPCreated
 }
 
-func (self *Dispatcher) DeleteBucket (ctx stf.ContextWithApi, bucketName string) *HTTPResponse {
+func (self *Dispatcher) DeleteBucket (ctx api.ContextWithApi, bucketName string) *HTTPResponse {
   rollback, err := ctx.TxnBegin()
   if err != nil {
     ctx.Debugf("Failed to start transaction: %s", err)
@@ -85,7 +85,7 @@ func (self *Dispatcher) DeleteBucket (ctx stf.ContextWithApi, bucketName string)
 
 // MOVE /bucket_name
 // X-STF-Move-Destination: /new_name
-func (self *Dispatcher) RenameBucket (ctx stf.ContextWithApi, bucketName string, dest string) *HTTPResponse {
+func (self *Dispatcher) RenameBucket (ctx api.ContextWithApi, bucketName string, dest string) *HTTPResponse {
   return nil
 }
 
