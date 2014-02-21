@@ -2,10 +2,11 @@ package stf
 
 import (
   "log"
+  "github.com/stf-storage/go-stf-server/config"
 )
 
 func ExampleDatabase() {
-  config := &DatabaseConfig {
+  config := &config.DatabaseConfig {
     "mysql",
     "root",
     "password",
