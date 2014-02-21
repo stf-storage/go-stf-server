@@ -5,15 +5,17 @@ package stftest
 import(
   "fmt"
   "os"
+  "github.com/stf-storage/go-stf-server"
+  "github.com/stf-storage/go-stf-server/config"
 )
 
 func (self *TestEnv) startQueue() {
-  config := self.MysqlConfig
-  self.QueueConfig = &QueueConfig {
-    config.Dbtype,
-    config.Username,
-    config.Password,
-    config.ConnectString,
+  cfg := self.MysqlConfig
+  self.QueueConfig = &config.QueueConfig {
+    cfg.Dbtype,
+    cfg.Username,
+    cfg.Password,
+    cfg.ConnectString,
     "test_queue",
   }
 
@@ -23,7 +25,7 @@ func (self *TestEnv) startQueue() {
 func (self *TestEnv) createQueue() {
   t := self.Test
 
-  db, err := ConnectDB(self.MysqlConfig)
+  db, err := stf.ConnectDB(self.MysqlConfig)
   if err != nil {
     t.Errorf("Failed to connect to database: %s", err)
     t.FailNow()

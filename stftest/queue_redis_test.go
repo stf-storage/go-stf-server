@@ -50,7 +50,7 @@ func (self *TestEnv) startQueue() {
   }
 
   addr := fmt.Sprintf("127.0.0.1:%d", tt.Port())
-  self.QueueConfig = &stf.QueueConfig{
+  self.QueueConfig = &config.QueueConfig{
     Addr: addr,
   }
 

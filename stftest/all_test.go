@@ -19,6 +19,8 @@ import (
   "testing"
   "time"
   "github.com/stf-storage/go-stf-server"
+  "github.com/stf-storage/go-stf-server/api"
+  "github.com/stf-storage/go-stf-server/config"
   "github.com/stf-storage/go-stf-server/dispatcher"
   "github.com/lestrrat/go-tcptest"
   "github.com/lestrrat/go-test-mysqld"
@@ -26,19 +28,19 @@ import (
 
 type TestEnv struct {
   Test        *testing.T
-  Ctx         *stf.Context
+  Ctx         *api.Context
   Guards      []func()
   WorkDir     string
   ConfigFile  *os.File
   Mysqld      *mysqltest.TestMysqld
-  MysqlConfig *stf.DatabaseConfig
+  MysqlConfig *config.DatabaseConfig
   MemdPort    int
-  QueueConfig *stf.QueueConfig
+  QueueConfig *config.QueueConfig
   StorageServers []*stf.StorageServer
 }
 
 type TestDatabase struct {
-  Config  *stf.DatabaseConfig
+  Config  *config.DatabaseConfig
   Socket  string
   DataDir string
   PidFile string
@@ -68,12 +70,12 @@ func (self *TestEnv) Setup () {
   self.startWorkers()
 
   os.Setenv("STF_CONFIG", self.ConfigFile.Name())
-  config, err := stf.BootstrapConfig()
+  config, err := config.BootstrapConfig()
   if err != nil {
     self.Test.Fatalf("%s", err)
   }
 
-  self.Ctx = stf.NewContext(config)
+  self.Ctx = api.NewContext(config)
 }
 
 func (self *TestEnv) Release () {
@@ -224,7 +226,7 @@ func (self *TestEnv) startDatabase()  {
   }
   self.Mysqld = mysqld
 
-  self.MysqlConfig = &stf.DatabaseConfig {
+  self.MysqlConfig = &config.DatabaseConfig {
     "mysql",
     "root",
     "",
