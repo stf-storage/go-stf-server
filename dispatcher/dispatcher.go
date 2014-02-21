@@ -4,6 +4,7 @@ import (
   "errors"
   "fmt"
   "log"
+  "os"
   "net/http"
   "regexp"
   "runtime"
@@ -37,6 +38,15 @@ type DispatcherContextWithApi interface {
   Request() *http.Request
 }
 
+func init () {
+  if os.Getenv("GOMAXPROCS") == "" {
+    old := runtime.GOMAXPROCS(-1)
+    cpu := runtime.NumCPU()
+    log.Printf("Automatically setting GOMAXPROCS to %d (was %d)", cpu, old)
+    runtime.GOMAXPROCS(cpu)
+  }
+}
+
 func New(config *stf.Config) *Dispatcher {
   d := &Dispatcher {
     config: config,
@@ -66,12 +76,6 @@ func (self *Dispatcher) IdGenerator() (*UUIDGen) {
 
 func (self *Dispatcher) Start () {
   ctx := stf.NewContext(self.config)
-  ncpu := runtime.NumCPU()
-  nmaxprocs := runtime.GOMAXPROCS(-1)
-  if ncpu != nmaxprocs {
-    ctx.Debugf("Setting GOMAXPROCS to %d (was %d)", ncpu, nmaxprocs)
-    runtime.GOMAXPROCS(ncpu)
-  }
 
   // Work with Server::Stareter
   baseListener, err := ss.NewListenerOrDefault("tcp", self.config.Dispatcher.Listen)
