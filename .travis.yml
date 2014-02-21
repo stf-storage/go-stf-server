@@ -10,8 +10,8 @@ script:
 after_success:
     - go get github.com/mattn/goveralls
     - go get code.google.com/p/go.tools/cmd/cover
-    - export PATH="$HOME/gopath/bin:$PATH"
-    - go test -coverprofile=c.out -tags redis -run Basic -v github.com/stf-storage/go-stf-server/stftest
+    - export PATH="$TRAVIS_BUILD_DIR/bin:$HOME/gopath/bin:$PATH"
+    - go test -coverprofile=c.out -tags $STF_QUEUE_TYPE -run Basic -v github.com/stf-storage/go-stf-server/stftest
     - goveralls -coverprofile=c.out $COVERALLS_TOKEN
 env:
     global:
