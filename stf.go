@@ -35,14 +35,3 @@ func GetHome() string {
 	}
 	return home
 }
-
-func RandomDuration(maxSeconds int64) time.Duration {
-	return time.Duration(rand.Int63n(maxSeconds * int64(time.Second)))
-}
-
-// Sleeps for random amount of time 1 > t > 0, returns the slept duration
-func RandomSleep(secs int64) time.Duration {
-	dur := time.Duration(RandomDuration(secs))
-	time.Sleep(dur)
-	return dur
-}
