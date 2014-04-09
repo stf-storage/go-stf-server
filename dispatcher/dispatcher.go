@@ -104,8 +104,7 @@ func (self *Dispatcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
   closer := ctx.LogMark("[%s %s]", r.Method, r.URL.Path)
   defer closer()
 
-  lw := apachelog.NewLoggingWriter(w, r, self.logger)
-  defer lw.EmitLog()
+  defer apachelog.NewLoggingWriter(w, r, self.logger).EmitLog()
 
   // Generic catch-all handler
   defer func() {
