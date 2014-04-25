@@ -3,4 +3,3 @@
 package config
 
 type QueueConfig DatabaseConfig
-

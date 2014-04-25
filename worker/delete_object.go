@@ -1,54 +1,53 @@
 package worker
 
 import (
-  "github.com/stf-storage/go-stf-server"
-  "github.com/stf-storage/go-stf-server/api"
-  "strconv"
+	"github.com/stf-storage/go-stf-server"
+	"github.com/stf-storage/go-stf-server/api"
+	"strconv"
 )
 
 type DeleteObjectWorker struct {
-  *BaseWorker
+	*BaseWorker
 }
 
-func NewDeleteObjectWorker() (*DeleteObjectWorker) {
-  f := NewQueueFetcher("queue_delete_object", 1)
-  w := &DeleteObjectWorker {
-    NewBaseWorker("DeleteObject", f),
-  }
-  w.WorkCb = w.Work
-  return w
+func NewDeleteObjectWorker() *DeleteObjectWorker {
+	f := NewQueueFetcher("queue_delete_object", 1)
+	w := &DeleteObjectWorker{
+		NewBaseWorker("DeleteObject", f),
+	}
+	w.WorkCb = w.Work
+	return w
 }
 
 func (self *DeleteObjectWorker) Work(arg *api.WorkerArg) (err error) {
-  objectId, err := strconv.ParseUint(arg.Arg, 10, 64)
-  if err != nil {
-    return
-  }
-  defer func() {
-    if  err != nil {
-      stf.Debugf("Failed to delete entities for object %d: %s", objectId, err)
-    } else {
-      stf.Debugf("Deleted object %d", objectId)
-    }
-  }()
+	objectId, err := strconv.ParseUint(arg.Arg, 10, 64)
+	if err != nil {
+		return
+	}
+	defer func() {
+		if err != nil {
+			stf.Debugf("Failed to delete entities for object %d: %s", objectId, err)
+		} else {
+			stf.Debugf("Deleted object %d", objectId)
+		}
+	}()
 
-  ctx := self.ctx
-  closer, err := ctx.TxnBegin()
-  if err != nil {
-    return
-  }
-  defer closer()
+	ctx := self.ctx
+	closer, err := ctx.TxnBegin()
+	if err != nil {
+		return
+	}
+	defer closer()
 
-  entityApi := ctx.EntityApi()
-  err = entityApi.RemoveForDeletedObjectId(objectId)
-  if err != nil {
-    return
-  }
+	entityApi := ctx.EntityApi()
+	err = entityApi.RemoveForDeletedObjectId(objectId)
+	if err != nil {
+		return
+	}
 
-  err = ctx.TxnCommit()
-  if err != nil {
-    return
-  }
-  return
+	err = ctx.TxnCommit()
+	if err != nil {
+		return
+	}
+	return
 }
-

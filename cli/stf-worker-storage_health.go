@@ -1,10 +1,9 @@
 package main
 
 import (
-  "github.com/stf-storage/go-stf-server/worker"
+	"github.com/stf-storage/go-stf-server/worker"
 )
 
 func main() {
-  worker.NewStorageHealthWorker().Run()
+	worker.NewStorageHealthWorker().Run()
 }
-

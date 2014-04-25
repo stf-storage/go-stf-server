@@ -1,350 +1,353 @@
 package api
 
 import (
-  "bytes"
-  "crypto/md5"
-  "errors"
-  "fmt"
-  "io"
-  "io/ioutil"
-  "sort"
-  "strconv"
-  "github.com/stf-storage/go-stf-server"
-  "github.com/stf-storage/go-stf-server/data"
+	"bytes"
+	"crypto/md5"
+	"errors"
+	"fmt"
+	"github.com/stf-storage/go-stf-server"
+	"github.com/stf-storage/go-stf-server/data"
+	"io"
+	"io/ioutil"
+	"sort"
+	"strconv"
 )
 
 type StorageCluster struct {
-  *BaseApi
+	*BaseApi
 }
 
-func NewStorageCluster (ctx ContextWithApi) *StorageCluster {
-  return &StorageCluster { &BaseApi { ctx } }
+func NewStorageCluster(ctx ContextWithApi) *StorageCluster {
+	return &StorageCluster{&BaseApi{ctx}}
 }
 
 // These are defined to allow sorting via the sort package
 type ClusterCandidates []*data.StorageCluster
 
 func (self ClusterCandidates) Prepare(objectId uint64) {
-  idStr := strconv.FormatUint(objectId, 10)
-  for _, x := range self {
-    key := strconv.FormatUint(uint64(x.Id), 10) + idStr
-    x.SortHint = stf.MurmurHash([]byte(key))
-  }
+	idStr := strconv.FormatUint(objectId, 10)
+	for _, x := range self {
+		key := strconv.FormatUint(uint64(x.Id), 10) + idStr
+		x.SortHint = stf.MurmurHash([]byte(key))
+	}
 }
-func (self ClusterCandidates) Len() int { return len(self) }
+func (self ClusterCandidates) Len() int      { return len(self) }
 func (self ClusterCandidates) Swap(i, j int) { self[i], self[j] = self[j], self[i] }
 func (self ClusterCandidates) Less(i, j int) bool {
-  return self[i].SortHint < self[j].SortHint
+	return self[i].SortHint < self[j].SortHint
 }
 
-func (self *StorageCluster) LoadWritable () (ClusterCandidates, error) {
-  ctx := self.Ctx()
+func (self *StorageCluster) LoadWritable() (ClusterCandidates, error) {
+	ctx := self.Ctx()
 
-  closer := ctx.LogMark("[Cluster.LoadWritable]")
-  defer closer()
+	closer := ctx.LogMark("[Cluster.LoadWritable]")
+	defer closer()
 
-  tx, err := ctx.Txn()
-  if err != nil {
-    return nil, err
-  }
+	tx, err := ctx.Txn()
+	if err != nil {
+		return nil, err
+	}
 
-  rows, err := tx.Query("SELECT id, name, mode FROM storage_cluster WHERE mode = ?", stf.STORAGE_CLUSTER_MODE_READ_WRITE)
+	rows, err := tx.Query("SELECT id, name, mode FROM storage_cluster WHERE mode = ?", stf.STORAGE_CLUSTER_MODE_READ_WRITE)
 
-  if err != nil {
-    ctx.Debugf("Failed to execute query: %s", err)
-    return nil, err
-  }
+	if err != nil {
+		ctx.Debugf("Failed to execute query: %s", err)
+		return nil, err
+	}
 
-  var list ClusterCandidates
-  for rows.Next() {
-    s := &data.StorageCluster {}
-    err = rows.Scan(&s.Id, &s.Name, &s.Mode)
-    if err != nil {
-      return nil, err
-    }
+	var list ClusterCandidates
+	for rows.Next() {
+		s := &data.StorageCluster{}
+		err = rows.Scan(&s.Id, &s.Name, &s.Mode)
+		if err != nil {
+			return nil, err
+		}
 
-    list = append(list, s)
-  }
+		list = append(list, s)
+	}
 
-  ctx.Debugf("Loaded %d clusters", len(list))
+	ctx.Debugf("Loaded %d clusters", len(list))
 
-  return list, nil
+	return list, nil
 }
 
 func (self *StorageCluster) LookupFromDB(id uint64) (*data.StorageCluster, error) {
-  ctx := self.Ctx()
+	ctx := self.Ctx()
 
-  closer := ctx.LogMark("[StorageCluster.LookupFromDB]")
-  defer closer()
+	closer := ctx.LogMark("[StorageCluster.LookupFromDB]")
+	defer closer()
 
-  tx, err := ctx.Txn()
-  if err != nil {
-    return nil, err
-  }
+	tx, err := ctx.Txn()
+	if err != nil {
+		return nil, err
+	}
 
-  row := tx.QueryRow("SELECT name, mode FROM storage_cluster WHERE id = ?", id)
+	row := tx.QueryRow("SELECT name, mode FROM storage_cluster WHERE id = ?", id)
 
-  c := data.StorageCluster { data.StfObject { Id: id }, "", 0, 0 }
-  err = row.Scan(&c.Name, &c.Mode)
-  if err != nil {
-    ctx.Debugf("Failed to execute query (LookupFromDB): %s", err)
-    return nil, err
-  }
+	c := data.StorageCluster{data.StfObject{Id: id}, "", 0, 0}
+	err = row.Scan(&c.Name, &c.Mode)
+	if err != nil {
+		ctx.Debugf("Failed to execute query (LookupFromDB): %s", err)
+		return nil, err
+	}
 
-  ctx.Debugf("Loaded storage cluster %d", id)
+	ctx.Debugf("Loaded storage cluster %d", id)
 
-  return &c, nil
+	return &c, nil
 }
 
 func (self *StorageCluster) Lookup(id uint64) (*data.StorageCluster, error) {
-  ctx := self.Ctx()
+	ctx := self.Ctx()
 
-  closer := ctx.LogMark("[StorageCluster.Lookup]")
-  defer closer()
+	closer := ctx.LogMark("[StorageCluster.Lookup]")
+	defer closer()
 
-  var c data.StorageCluster
-  cache := ctx.Cache()
-  cacheKey := cache.CacheKey("storage_cluster", strconv.FormatUint(id, 10))
-  err := cache.Get(cacheKey, &c)
+	var c data.StorageCluster
+	cache := ctx.Cache()
+	cacheKey := cache.CacheKey("storage_cluster", strconv.FormatUint(id, 10))
+	err := cache.Get(cacheKey, &c)
 
-  if err == nil {
-    ctx.Debugf("Cache HIT for cluster %d, returning cluster from cache", id)
-    return &c, nil
-  }
+	if err == nil {
+		ctx.Debugf("Cache HIT for cluster %d, returning cluster from cache", id)
+		return &c, nil
+	}
 
-  cptr, err := self.LookupFromDB(id)
-  if err != nil {
-    return nil, err
-  }
+	cptr, err := self.LookupFromDB(id)
+	if err != nil {
+		return nil, err
+	}
 
-  ctx.Debugf("Successfully loaded cluster %d from database", id)
-  cache.Set(cacheKey, *cptr, 3600)
-  return cptr, nil
+	ctx.Debugf("Successfully loaded cluster %d from database", id)
+	cache.Set(cacheKey, *cptr, 3600)
+	return cptr, nil
 }
 
 func (self *StorageCluster) LookupForObject(objectId uint64) (*data.StorageCluster, error) {
-  ctx := self.Ctx()
+	ctx := self.Ctx()
 
-  closer := ctx.LogMark("[StorageCluster.LookupForObject]")
-  defer closer()
+	closer := ctx.LogMark("[StorageCluster.LookupForObject]")
+	defer closer()
 
-  tx, err := ctx.Txn()
-  if err != nil {
-    return nil, err
-  }
+	tx, err := ctx.Txn()
+	if err != nil {
+		return nil, err
+	}
 
-  var cid uint64
-  row := tx.QueryRow("SELECT cluster_id FROM object_cluster_map WHERE object_id = ?", objectId)
-  err = row.Scan(&cid)
-  if err != nil {
-    return nil, err
-  }
+	var cid uint64
+	row := tx.QueryRow("SELECT cluster_id FROM object_cluster_map WHERE object_id = ?", objectId)
+	err = row.Scan(&cid)
+	if err != nil {
+		return nil, err
+	}
 
-  return self.Lookup(cid)
+	return self.Lookup(cid)
 }
 
 func (self *StorageCluster) LoadCandidatesFor(objectId uint64) (ClusterCandidates, error) {
-  ctx := self.Ctx()
+	ctx := self.Ctx()
 
-  closer := ctx.LogMark("[StorageCluster.LoadCandidatesFor]")
-  defer closer()
+	closer := ctx.LogMark("[StorageCluster.LoadCandidatesFor]")
+	defer closer()
 
-  list, err := self.LoadWritable()
-  if err != nil {
-    return nil, err
-  }
-  list.Prepare(objectId)
-  sort.Sort(list)
+	list, err := self.LoadWritable()
+	if err != nil {
+		return nil, err
+	}
+	list.Prepare(objectId)
+	sort.Sort(list)
 
-  return list, nil
+	return list, nil
 }
 
-func calcMD5 (input interface { Read([]byte) (int, error) } ) []byte {
-  h := md5.New()
-  var buf []byte
-  for {
-    n, err := input.Read(buf)
-    if (n > 0) {
-      io.WriteString(h, string(buf))
-    }
-    if n == 0 || err == io.EOF {
-      break
-    }
-  }
+func calcMD5(input interface {
+	Read([]byte) (int, error)
+}) []byte {
+	h := md5.New()
+	var buf []byte
+	for {
+		n, err := input.Read(buf)
+		if n > 0 {
+			io.WriteString(h, string(buf))
+		}
+		if n == 0 || err == io.EOF {
+			break
+		}
+	}
 
-  return h.Sum(nil)
+	return h.Sum(nil)
 }
 
 func (self *StorageCluster) Store(
-  clusterId uint64,
-  o *data.Object,
-  input *bytes.Reader,
-  minimumToStore int,
-  isRepair bool,
-  force bool,
+	clusterId uint64,
+	o *data.Object,
+	input *bytes.Reader,
+	minimumToStore int,
+	isRepair bool,
+	force bool,
 ) error {
-  ctx := self.Ctx()
+	ctx := self.Ctx()
 
-  closer := ctx.LogMark("[Cluster.Store]")
-  defer closer()
+	closer := ctx.LogMark("[Cluster.Store]")
+	defer closer()
 
-  storageApi := ctx.StorageApi()
-  storages, err := storageApi.LoadWritable(clusterId, isRepair)
-  if err != nil {
-    ctx.Debugf("Failed to load storage candidates for writing: %s", err)
-    return err
-  }
+	storageApi := ctx.StorageApi()
+	storages, err := storageApi.LoadWritable(clusterId, isRepair)
+	if err != nil {
+		ctx.Debugf("Failed to load storage candidates for writing: %s", err)
+		return err
+	}
 
-  if minimumToStore < 1 {
-    // Give it a default value
-    minimumToStore = 3
-  }
+	if minimumToStore < 1 {
+		// Give it a default value
+		minimumToStore = 3
+	}
 
-  if len(storages) < minimumToStore {
-    err = errors.New(
-      fmt.Sprintf(
-        "Only loaded %d storages (wanted %d) for cluster %d",
-        len(storages),
-        minimumToStore,
-        clusterId,
-      ),
-    )
-    ctx.Debugf("%s", err)
-    return err
-  }
+	if len(storages) < minimumToStore {
+		err = errors.New(
+			fmt.Sprintf(
+				"Only loaded %d storages (wanted %d) for cluster %d",
+				len(storages),
+				minimumToStore,
+				clusterId,
+			),
+		)
+		ctx.Debugf("%s", err)
+		return err
+	}
 
-  var expected []byte
-  if ! force {
-    // Micro-optimize
-    expected = calcMD5(input)
-  }
+	var expected []byte
+	if !force {
+		// Micro-optimize
+		expected = calcMD5(input)
+	}
 
-  entityApi := ctx.EntityApi()
+	entityApi := ctx.EntityApi()
 
-  stored := 0
-  for _, s := range storages {
-    ctx.Debugf("Attempting to store to storage %s (id = %d)", s.Uri, s.Id)
-    // Without the force flag, we fetch the object before storing to
-    // avoid redundant writes. force should only be used when you KNOW
-    // that this is a new entity
-    var fetchedContent []byte
-    var fetchedMD5 []byte
-    fetchOK := false
-    if ! force {
-      // Entity in database needs to exist
-      if _, err := entityApi.Lookup(o.Id, s.Id); err == nil {
-        // If it does, not check for the content
-        if fetched, err := entityApi.FetchContent(o, s, isRepair); err == nil {
-          if fetchedContent, err = ioutil.ReadAll(fetched); err == nil {
-            fetchedMD5 = calcMD5(bytes.NewReader(fetchedContent))
-            fetchOK = true
-          }
-        }
-      }
-    }
+	stored := 0
+	for _, s := range storages {
+		ctx.Debugf("Attempting to store to storage %s (id = %d)", s.Uri, s.Id)
+		// Without the force flag, we fetch the object before storing to
+		// avoid redundant writes. force should only be used when you KNOW
+		// that this is a new entity
+		var fetchedContent []byte
+		var fetchedMD5 []byte
+		fetchOK := false
+		if !force {
+			// Entity in database needs to exist
+			if _, err := entityApi.Lookup(o.Id, s.Id); err == nil {
+				// If it does, not check for the content
+				if fetched, err := entityApi.FetchContent(o, s, isRepair); err == nil {
+					if fetchedContent, err = ioutil.ReadAll(fetched); err == nil {
+						fetchedMD5 = calcMD5(bytes.NewReader(fetchedContent))
+						fetchOK = true
+					}
+				}
+			}
+		}
 
-    if fetchOK {
-      // Find the MD5 checksum of the fetchedContent, and make sure that
-      // this indeed matches what we want to store
-      if bytes.Equal(fetchedMD5, expected) {
-        // It's a match!
-        stored++
-        ctx.Debugf(
-          "Entity on storage %d exist, and md5 matches. Assume this is OK",
-          s.Id,
-        )
-        continue
-      }
-    }
+		if fetchOK {
+			// Find the MD5 checksum of the fetchedContent, and make sure that
+			// this indeed matches what we want to store
+			if bytes.Equal(fetchedMD5, expected) {
+				// It's a match!
+				stored++
+				ctx.Debugf(
+					"Entity on storage %d exist, and md5 matches. Assume this is OK",
+					s.Id,
+				)
+				continue
+			}
+		}
 
-    if _, err = input.Seek(0, 0); err != nil {
-      err = errors.New(fmt.Sprintf("failed to seek: %s", err))
-      return err
-    }
+		if _, err = input.Seek(0, 0); err != nil {
+			err = errors.New(fmt.Sprintf("failed to seek: %s", err))
+			return err
+		}
 
-    err = entityApi.Store(s, o, input)
-    if err == nil {
-      stored++
-      if minimumToStore > 0 && stored >= minimumToStore {
-        break
-      }
-    }
-  }
+		err = entityApi.Store(s, o, input)
+		if err == nil {
+			stored++
+			if minimumToStore > 0 && stored >= minimumToStore {
+				break
+			}
+		}
+	}
 
-  storedOK := minimumToStore == 0 || stored >= minimumToStore
+	storedOK := minimumToStore == 0 || stored >= minimumToStore
 
-  if ! storedOK {
-    return errors.New(
-      fmt.Sprintf(
-        "Only stored %d entities while we wanted %d entities",
-        stored,
-        minimumToStore,
-      ),
-    )
-  }
+	if !storedOK {
+		return errors.New(
+			fmt.Sprintf(
+				"Only stored %d entities while we wanted %d entities",
+				stored,
+				minimumToStore,
+			),
+		)
+	}
 
-  ctx.Debugf(
-    "Stored %d entities for object %d in cluster %d",
-    stored,
-    o.Id,
-    clusterId,
-  )
-  return nil
+	ctx.Debugf(
+		"Stored %d entities for object %d in cluster %d",
+		stored,
+		o.Id,
+		clusterId,
+	)
+	return nil
 }
 
 func (self *StorageCluster) RegisterForObject(clusterId uint64, objectId uint64) error {
-  return nil
+	return nil
 }
 
 var ErrClusterNotWritable = errors.New("Cluster is not writable")
 var ErrNoStorageAvailable = errors.New("No storages available")
+
 func (self *StorageCluster) CheckEntityHealth(
-  cluster   *data.StorageCluster,
-  o         *data.Object,
-  isRepair  bool,
+	cluster *data.StorageCluster,
+	o *data.Object,
+	isRepair bool,
 ) error {
-  ctx := self.Ctx()
+	ctx := self.Ctx()
 
-  closer := ctx.LogMark("[StorageCluster.CheckEntityHealth]")
-  defer closer()
+	closer := ctx.LogMark("[StorageCluster.CheckEntityHealth]")
+	defer closer()
 
-  ctx.Debugf(
-    "Checking entity health for object %d on cluster %d",
-    o.Id,
-    cluster.Id,
-  )
+	ctx.Debugf(
+		"Checking entity health for object %d on cluster %d",
+		o.Id,
+		cluster.Id,
+	)
 
-  // Short circuit. If the cluster mode is not rw or ro, then
-  // we have a problem.
-  if cluster.Mode != stf.STORAGE_CLUSTER_MODE_READ_WRITE && cluster.Mode != stf.STORAGE_CLUSTER_MODE_READ_ONLY {
-    ctx.Debugf(
-      "Cluster %d is not read-write or read-only, need to move object %d out of this cluster",
-      cluster.Id,
-      o.Id,
-    )
-    return ErrClusterNotWritable
-  }
+	// Short circuit. If the cluster mode is not rw or ro, then
+	// we have a problem.
+	if cluster.Mode != stf.STORAGE_CLUSTER_MODE_READ_WRITE && cluster.Mode != stf.STORAGE_CLUSTER_MODE_READ_ONLY {
+		ctx.Debugf(
+			"Cluster %d is not read-write or read-only, need to move object %d out of this cluster",
+			cluster.Id,
+			o.Id,
+		)
+		return ErrClusterNotWritable
+	}
 
-  storageApi := ctx.StorageApi()
-  storages, err := storageApi.LoadInCluster(cluster.Id)
-  if err != nil {
-    return ErrNoStorageAvailable
-  }
+	storageApi := ctx.StorageApi()
+	storages, err := storageApi.LoadInCluster(cluster.Id)
+	if err != nil {
+		return ErrNoStorageAvailable
+	}
 
-  entityApi := ctx.EntityApi()
-  for _, s := range storages {
-    err = entityApi.CheckHealth(o, s, isRepair)
-    if err != nil {
-      ctx.Debugf("Health check for entity on object %d storage %d failed", o.Id, s.Id)
-      return errors.New(
-        fmt.Sprintf(
-          "Entity for object %d on storage %d is unavailable: %s",
-          o.Id,
-          s.Id,
-          err,
-        ),
-      )
-    }
-  }
-  return nil
-} 
+	entityApi := ctx.EntityApi()
+	for _, s := range storages {
+		err = entityApi.CheckHealth(o, s, isRepair)
+		if err != nil {
+			ctx.Debugf("Health check for entity on object %d storage %d failed", o.Id, s.Id)
+			return errors.New(
+				fmt.Sprintf(
+					"Entity for object %d on storage %d is unavailable: %s",
+					o.Id,
+					s.Id,
+					err,
+				),
+			)
+		}
+	}
+	return nil
+}

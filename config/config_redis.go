@@ -3,7 +3,7 @@
 package config
 
 import (
-  "github.com/vmihailenco/redis/v2"
+	"github.com/vmihailenco/redis/v2"
 )
 
 type QueueConfig redis.Options

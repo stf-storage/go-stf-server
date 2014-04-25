@@ -5,5 +5,5 @@ import (
 )
 
 func main() {
-	worker.NewReplicateObjectWorker().Run()
+	worker.NewDeleteObjectWorker().Run()
 }
