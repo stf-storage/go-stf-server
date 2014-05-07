@@ -31,15 +31,40 @@ type Drone struct {
 
 type DroneCmd int
 
-var (
-	CmdStopDrone    = DroneCmd(-1)
-	CmdAnnounce     = DroneCmd(0)
-	CmdSpawnMinion  = DroneCmd(1)
-	CmdReloadMinion = DroneCmd(2)
-	CmdCheckState   = DroneCmd(3)
-	CmdElection     = DroneCmd(4)
-	CmdRebalance    = DroneCmd(5)
-	CmdExpireDrone  = DroneCmd(6)
+func (dc DroneCmd) String() string {
+	var name string
+	switch dc {
+	case CmdStopDrone:
+		name = "StopDrone"
+	case CmdAnnounce:
+		name = "Account"
+	case CmdSpawnMinion:
+		name = "SpawnMinion"
+	case CmdReloadMinion:
+		name = "ReloadMinion"
+	case CmdCheckState:
+		name = "CheckState"
+	case CmdElection:
+		name = "Election"
+	case CmdRebalance:
+		name = "Rebalance"
+	case CmdExpireDrone:
+		name = "ExpireDrone"
+	default:
+		name = fmt.Sprintf("UnknownCmd(%d)", int(dc))
+	}
+	return name
+}
+
+const (
+	CmdStopDrone    = DroneCmd(iota)
+	CmdAnnounce     = DroneCmd(iota)
+	CmdSpawnMinion  = DroneCmd(iota)
+	CmdReloadMinion = DroneCmd(iota)
+	CmdCheckState   = DroneCmd(iota)
+	CmdElection     = DroneCmd(iota)
+	CmdRebalance    = DroneCmd(iota)
+	CmdExpireDrone  = DroneCmd(iota)
 )
 
 func (c DroneCmd) ToString() string {
