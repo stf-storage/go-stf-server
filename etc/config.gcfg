@@ -11,7 +11,7 @@ AccessLogLink = accesslog
 Username = root
 
 [QueueDB "1"]
-Addr = "127.0.0.1:6379"
+ConnectString = tcp(127.0.0.1:6379)
 
 ; [QueueDB "1"]
 ; ConnectString = tcp(127.0.0.1:3306)
