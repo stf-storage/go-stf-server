@@ -53,7 +53,7 @@ WORKERS="
 "
 for executable in $WORKERS; do
   echo "Building in bin/stf-worker-$executable"
-  go build -tags $STF_QUEUE_TYPE -a -o bin/stf-worker-$executable cli/stf-worker-$executable.go
+  go build -tags $STF_QUEUE_TYPE -a -o bin/stf-worker-$executable cli/stf-worker-$executable/stf-worker-$executable.go
 done
 
 EXECUTABLES="
@@ -63,7 +63,7 @@ EXECUTABLES="
 "
 for executable in $EXECUTABLES; do
   echo "Building bin/$executable"
-  go build -tags $STF_QUEUE_TYPE -a -o bin/$executable cli/$executable.go
+  go build -tags $STF_QUEUE_TYPE -a -o bin/$executable cli/$executable/$executable.go
 done
 
 echo "Build done"
