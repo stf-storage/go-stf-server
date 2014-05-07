@@ -32,3 +32,27 @@ While the [Perl version](https://github.com/stf-storage/stf) is used in producti
 
 * Move objects
 * Web UI
+
+## Installation
+
+To install go-stf-server's binaries, you can simply use the following:
+
+```
+curl -L https://raw.githubusercontent.com/stf-storage/go-stf-server/master/install.sh | bash -s
+```
+
+This downloads and compiles go-stf-server's binary files into /usr/local/stf
+
+To change where files are installed, you can use the --prefix option:
+
+```
+curl -L https://raw.githubusercontent.com/stf-storage/go-stf-server/master/install.sh | bash -s --prefix /opt/local/stf
+```
+
+To change the queue type, you can use the --queue options:
+
+```
+curl -L https://raw.githubusercontent.com/stf-storage/go-stf-server/master/install.sh | bash -s --queue redis
+```
+
+
