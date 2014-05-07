@@ -67,29 +67,6 @@ const (
 	CmdExpireDrone  = DroneCmd(iota)
 )
 
-func (c DroneCmd) ToString() string {
-	switch c {
-	case CmdStopDrone:
-		return "CmdStopDrone"
-	case CmdAnnounce:
-		return "CmdAnnounce"
-	case CmdSpawnMinion:
-		return "CmdSpawnMinion"
-	case CmdReloadMinion:
-		return "CmdReloadMinion"
-	case CmdCheckState:
-		return "CmdCheckState"
-	case CmdElection:
-		return "CmdElection"
-	case CmdRebalance:
-		return "CmdRebalance"
-	case CmdExpireDrone:
-		return "CmdExpireDrone"
-	default:
-		return fmt.Sprintf("UnknownCommand(%d)", c)
-	}
-}
-
 func NewDrone(config *config.Config) *Drone {
 	host, err := os.Hostname()
 	if err != nil {
@@ -117,13 +94,21 @@ func (d *Drone) Loop() bool {
 
 func (d *Drone) Run() {
 	defer func() {
+		if list := d.tasks; list != nil {
+			for _, task := range list {
+				task.Stop()
+			}
+		}
+	}()
+	defer func() {
 		d.Unregister()
 		for _, m := range d.Minions() {
 			m.Kill()
 		}
 	}()
 
-	go d.TimerLoop()
+	d.StartPeriodicTasks()
+
 	go d.WaitSignal()
 
 	// We need to kickstart:
@@ -158,48 +143,43 @@ OUTER:
 }
 
 func (d *Drone) makeAnnounceTask() *PeriodicTask {
-	return &PeriodicTask{
+	return NewPeriodicTask(
 		30 * time.Second,
 		true,
-		time.Time{},
-		func() { d.SendCmd(CmdAnnounce) },
-	}
+		func(pt *PeriodicTask) { d.SendCmd(CmdAnnounce) },
+	)
 }
 
 func (d *Drone) makeCheckStateTask() *PeriodicTask {
-	return &PeriodicTask{
+	return NewPeriodicTask(
 		5 * time.Second,
 		true,
-		time.Time{},
-		func() { d.SendCmd(CmdCheckState) },
-	}
+		func(pt *PeriodicTask) { d.SendCmd(CmdCheckState) },
+	)
 }
 
 func (d *Drone) makeElectionTask() *PeriodicTask {
-	return &PeriodicTask{
+	return NewPeriodicTask(
 		300 * time.Second,
 		false,
-		time.Time{},
-		func() { d.SendCmd(CmdElection) },
-	}
+		func(pt *PeriodicTask) { d.SendCmd(CmdElection) },
+	)
 }
 
 func (d *Drone) makeExpireTask() *PeriodicTask {
-	return &PeriodicTask{
+	return NewPeriodicTask(
 		60 * time.Second,
 		true,
-		time.Time{},
-		func() { d.SendCmd(CmdExpireDrone) },
-	}
+		func(pt *PeriodicTask) { d.SendCmd(CmdExpireDrone) },
+	)
 }
 
 func (d *Drone) makeRebalanceTask() *PeriodicTask {
-	return &PeriodicTask{
+	return NewPeriodicTask(
 		60 * time.Second,
 		true,
-		time.Time{},
-		func() { d.SendCmd(CmdRebalance) },
-	}
+		func(pt *PeriodicTask) { d.SendCmd(CmdRebalance) },
+	)
 }
 
 func (d *Drone) PeriodicTasks() []*PeriodicTask {
@@ -262,27 +242,12 @@ func (d *Drone) NotifyMinions() {
 	}
 }
 
-func (d *Drone) TimerLoop() {
-	defer func() {
-		os.Stderr.WriteString("TimerLoop exiting...")
-	}()
-	// Periodically wake up to check if we have anything to do
-	c := time.Tick(5 * time.Second)
-
-	// fire once in the beginning
+func (d *Drone) StartPeriodicTasks() {
 	for _, task := range d.PeriodicTasks() {
-		task.Run()
-	}
-
-	for {
-		t := <-c
-		for _, task := range d.PeriodicTasks() {
-			if task.ShouldFire(t) {
-				task.Run()
-			}
-		}
+		go task.Run()
 	}
 }
+
 func (d *Drone) MainLoop() {
 	for d.Loop() {
 		cmd, ok := <-d.CmdChan

@@ -2,6 +2,7 @@ package drone
 
 import (
 	"testing"
+	"time"
 )
 
 func TestDrone(t *testing.T) {
@@ -28,4 +29,32 @@ func TestCommandDecl(t *testing.T) {
 		}
 	}
 
+}
+
+func TestPeriodicTask(t *testing.T) {
+	var prev time.Time
+	count := 0
+	c := make(chan struct{})
+	task := NewPeriodicTask(time.Second, false, func (pt *PeriodicTask) {
+		now := time.Now()
+		if ! prev.IsZero() {
+			diff := now.Sub(prev)
+			if diff < time.Second {
+				t.Errorf("Whoa, fired periodic task fired in %s!", diff)
+			}
+		}
+
+		if count++; count > 5 {
+			pt.Stop()
+			c<-struct{}{}
+		}
+	})
+
+	go task.Run()
+
+	<-c
+
+	if count != 6 {
+		t.Errorf("Expected 5 iterations to be executed, got %d", count)
+	}
 }
